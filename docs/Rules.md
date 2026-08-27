@@ -11,7 +11,7 @@ Boundaries for any AI coding assistant (and for the author) working in this repo
 | Python 3.11+, `asyncio` | threads for concurrency | one concurrency model |
 | **LangGraph** for the graph (`StateGraph`, `Send`, `interrupt`, `Command`, `PostgresSaver`) | LangChain agents/chains, AutoGen, CrewAI, any second orchestration framework | one place for control flow |
 | `openai` SDK, one class, per-provider `base_url` + key (TokenRouter free, Mistral, Groq, Gemini, Ollama — all OpenAI-compatible); `anthropic` SDK only behind `ENABLE_PAID_PROVIDERS` | hand-rolled HTTP to model endpoints; one SDK per provider; any paid provider in a default chain | one client, many free providers, $0 default |
-| `mcp` Python SDK (`FastMCP` servers, `ClientSession` client) | ad-hoc JSON-RPC | standard protocol, standard testing |
+| `mcp` Python SDK 2.x (`MCPServer` servers, `mcp.Client` in the registry) | ad-hoc JSON-RPC | standard protocol, standard testing |
 | Pydantic v2 for every model crossing a boundary | dicts / `TypedDict` for cross-agent payloads (TypedDict is fine for graph state only) | validation at boundaries |
 | `pydantic-settings` in `config/` | `os.environ` anywhere else | one env reader |
 | SQLAlchemy 2 + Alembic (repositories) | raw SQL outside `memory/persistent.py` repositories | one data-access layer |
@@ -59,9 +59,9 @@ Error taxonomy in `packages/shared/errors.py`:
 |---|---|---|
 | `RetryableError` | 429, 5xx, timeouts, connection errors | retry with exponential backoff (3×), then escalate as `repeated_failure` |
 | `NonRetryableError` | 4xx other than 429, validation failures | no retry; surface as `is_error` result or fail the node |
-| `ToolDenied` | gate blocked the call | return as error result to the model |
-| `ApprovalRequired` | gate requires a human | `interrupt()` |
-| `BudgetExceeded` | iterations / tokens / cost | escalate `repeated_failure` at L4 |
+| `ToolDeniedError` | gate blocked the call | return as error result to the model |
+| `ApprovalRequiredError` | gate requires a human | `interrupt()` |
+| `BudgetExceededError` | iterations / tokens / cost | escalate `repeated_failure` at L4 |
 | `SchemaValidationError` | model output failed Pydantic | one retry with the error appended; then `NonRetryableError` |
 
 Rules: catch the most specific class first; never catch bare `Exception` except at the worker boundary (where it becomes `tasks.status=failed` + audit row). Every error path emits a span event with the class name.

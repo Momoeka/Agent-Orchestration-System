@@ -58,11 +58,11 @@ class TaskState(TypedDict):
     task_id: str
     user_id: str
     request: str
-    options: TaskOptions                     # require_human_review, budget_usd, …
+    options: TaskOptions  # require_human_review, budget_usd, …
     recalled_memories: list[MemoryRecord]
     plan: ExecutionPlan | None
     plan_confidence: float
-    subtask_results: Annotated[dict[str, SubtaskResult], merge_dicts]   # reducer for fan-in
+    subtask_results: Annotated[dict[str, SubtaskResult], merge_dicts]  # reducer for fan-in
     review_verdicts: Annotated[dict[str, ReviewVerdict], merge_dicts]
     retry_counts: dict[str, int]
     pending_approval: ApprovalRequest | None
@@ -123,10 +123,10 @@ Each agent is a package under `packages/orchestrator/agents/<name>/` with `promp
 | Agent | Role config | Effort | Tools (allow-list) | Output schema |
 |---|---|---|---|---|
 | supervisor | `supervisor` | `xhigh` (plan) / `medium` (synthesize) | none | `ExecutionPlan`, `Deliverable` |
-| research | `specialist` | `medium` | `web.search`, `web.fetch`, `files.read_file`, `files.list_dir`, `db.query`, `db.schema` (+ `rag.search_docs` in v2) | `SubtaskResult` |
-| analysis | `specialist` | `medium` | `db.query`, `db.schema`, `sandbox.run_python`, `files.read_file` | `SubtaskResult` |
-| writing | `specialist` | `medium` | `files.read_file`, `files.write_file`, `actions.send_email`, `actions.create_calendar_event` | `SubtaskResult` |
-| code_exec | `specialist` (may use `cheap`) | `medium` | `sandbox.run_python`, `files.*` | `SubtaskResult` |
+| research | `specialist` | `medium` | `web_search`, `web_fetch`, `files_read_file`, `files_list_dir`, `db_query`, `db_schema` (+ `rag_search_docs` in v2) | `SubtaskResult` |
+| analysis | `specialist` | `medium` | `db_query`, `db_schema`, `sandbox_run_python`, `files_read_file` | `SubtaskResult` |
+| writing | `specialist` | `medium` | `files_read_file`, `files_write_file`, `actions_send_email`, `actions_create_calendar_event` | `SubtaskResult` |
+| code_exec | `specialist` (may use `cheap`) | `medium` | `sandbox_run_python`, `files_*` | `SubtaskResult` |
 | reviewer | `reviewer` | `high` | none | `ReviewVerdict` |
 | memory extractor | `cheap` | `low` | none | `list[MemoryRecord]` |
 
@@ -163,7 +163,7 @@ tools:
 
 A tool with no policy entry is **not registered** (fail closed). The registry exposes `schemas_for(agent)` (OpenAI-format function schemas, or Anthropic-format when the native provider is active) and `invoke(call)`.
 
-### 6.2 MCP servers (`packages/tools/mcp_servers/<name>/server.py`, each a `FastMCP` app)
+### 6.2 MCP servers (`packages/tools/mcp_servers/<name>/server.py`, each an `MCPServer` app)
 
 | Server | Tool | Signature | Risk | Notes |
 |---|---|---|---|---|

@@ -159,7 +159,7 @@ def check_json_schema(c: OpenAI, model: str, r: Result) -> None:
             elif mode == "json_object":
                 kwargs["response_format"] = {"type": "json_object"}
             resp, ms = timed(
-                lambda: c.chat.completions.create(
+                lambda kwargs=kwargs: c.chat.completions.create(
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=1500,
@@ -198,7 +198,11 @@ def entries_from_config() -> list[tuple[str, str]]:
     for role in cfg.get("roles", {}).values():
         for entry in role.get("chain", []):
             pair = (entry["provider"], entry["model"])
-            if pair not in seen and entry["provider"] in PROVIDERS and role is not cfg["roles"].get("embedding"):
+            if (
+                pair not in seen
+                and entry["provider"] in PROVIDERS
+                and role is not cfg["roles"].get("embedding")
+            ):
                 seen.append(pair)
     # embeddings are not chat models; skip them here
     emb = {(e["provider"], e["model"]) for e in cfg["roles"].get("embedding", {}).get("chain", [])}
@@ -209,7 +213,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--provider", choices=PROVIDERS.keys())
     ap.add_argument("--model")
-    ap.add_argument("--all", action="store_true", help="test every chat entry in config/models.yaml")
+    ap.add_argument(
+        "--all", action="store_true", help="test every chat entry in config/models.yaml"
+    )
     args = ap.parse_args()
 
     targets = entries_from_config() if args.all else [(args.provider, args.model)]
@@ -217,11 +223,15 @@ def main() -> int:
         ap.error("--provider and --model are required unless --all")
 
     results = [run_one(p, m) for p, m in targets]
-    print(f"{'provider':<17}{'model':<44}{'chat':<6}{'tool':<6}{'json':<6}{'ms(chat/tool/json)':<22}notes")
+    print(
+        f"{'provider':<17}{'model':<44}{'chat':<6}{'tool':<6}{'json':<6}{'ms(chat/tool/json)':<22}notes"
+    )
     for r in results:
         lat = "/".join(str(r.latency_ms.get(k, "-")) for k in ("chat", "tool", "json"))
         flag = lambda b: "ok" if b else "FAIL"  # noqa: E731
-        print(f"{r.provider:<17}{r.model:<44}{flag(r.chat):<6}{flag(r.tool_call):<6}{flag(r.json_schema):<6}{lat:<22}{'; '.join(r.notes)}")
+        print(
+            f"{r.provider:<17}{r.model:<44}{flag(r.chat):<6}{flag(r.tool_call):<6}{flag(r.json_schema):<6}{lat:<22}{'; '.join(r.notes)}"
+        )
     return 0 if all(r.ok for r in results) else 1
 
 

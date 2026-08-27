@@ -59,6 +59,33 @@ services:
       - "4317:4317"
       - "4318:4318"
 
+  # ---- MCP servers (profile "tools"). In development run them locally with `make mcp-db` /
+  # `make mcp-files`; the containers exist so the stack can be brought up without a venv:
+  #   docker compose -f infra/docker-compose.yml --profile tools up -d
+  mcp-db:
+    profiles: ["tools"]
+    build: { context: .., dockerfile: infra/Dockerfile.mcp }
+    command: ["packages.tools.mcp_servers.database"]
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "7004"
+      DATABASE_URL_READONLY: postgresql+psycopg://foreman_ro:foreman_ro@postgres:5432/foreman
+    ports: ["7004:7004"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  mcp-files:
+    profiles: ["tools"]
+    build: { context: .., dockerfile: infra/Dockerfile.mcp }
+    command: ["packages.tools.mcp_servers.files"]
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "7002"
+      WORKSPACE_ROOT: /workspace
+    volumes:
+      - ../data/workspace:/workspace
+    ports: ["7002:7002"]
+
 volumes:
   pgdata:
   chromadata:

@@ -28,7 +28,7 @@ Time budget assumes 2–3 focused hours per day. If a phase overruns by more tha
 - `packages/shared/types`: `Subtask`, `SubtaskResult`, `ToolCall`, `ToolResult`, `CostEntry`.
 - `packages/orchestrator/llm`: `LLMClient` interface; `openai_compat.py` — one class, instantiated per provider from `base_url` + key (chat, tools, JSON-schema output, usage → cost, rate-limit header parsing); `chains.py` — per-role fallback chain (429 / 5xx / timeout / schema-fail ×2 → next entry, span attribute `fallback=true`); `roles.py` reading `config/models.yaml`.
 - `packages/orchestrator/tracing/otel.py`: tracer setup; `llm.call` span helper; cost computation.
-- `packages/tools/mcp_servers/database` and `files` servers (`FastMCP`, streamable HTTP, Dockerfiles). Database: SELECT-only user + `sqlparse` guard. Files: canonical path confinement.
+- `packages/tools/mcp_servers/database` and `files` servers (`MCPServer`, streamable HTTP, Dockerfiles). Database: SELECT-only user + `sqlparse` guard. Files: canonical path confinement.
 - `packages/tools/registry`: discover tools from the two servers; `policy.yaml`; `schemas_for(agent)`; `invoke(call)`.
 - `packages/orchestrator/loop/agent_loop.py` with all four guards; `budgets.py`.
 - One specialist: `agents/research/` with `prompt.md` and `agent.py`.

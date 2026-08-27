@@ -1,0 +1,44 @@
+# Tool policy (Architecture.md §6.1). A tool an MCP server exposes but that is NOT listed here is never
+# registered — fail closed. Registry names use underscores because OpenAI-style function names must
+# match ^[A-Za-z0-9_-]{1,64}$ (so `db_query`, not `db.query`).
+servers:
+  db:    {url_env: MCP_DB_URL}
+  files: {url_env: MCP_FILES_URL}
+  # added in Phase 3: web (MCP_WEB_URL), sandbox (MCP_SANDBOX_URL), actions (MCP_ACTIONS_URL)
+
+tools:
+  db_schema:
+    server: db
+    mcp_name: schema
+    risk: safe
+    agents: [research, analysis]
+    rate_per_min: 60
+    timeout_s: 20
+  db_query:
+    server: db
+    mcp_name: query
+    risk: safe
+    agents: [research, analysis]
+    rate_per_min: 60
+    timeout_s: 20
+  files_list_dir:
+    server: files
+    mcp_name: list_dir
+    risk: safe
+    agents: [research, analysis, writing, code_exec]
+    rate_per_min: 60
+    timeout_s: 10
+  files_read_file:
+    server: files
+    mcp_name: read_file
+    risk: safe
+    agents: [research, analysis, writing, code_exec]
+    rate_per_min: 60
+    timeout_s: 10
+  files_write_file:
+    server: files
+    mcp_name: write_file
+    risk: risky
+    agents: [writing, code_exec]
+    rate_per_min: 20
+    timeout_s: 10

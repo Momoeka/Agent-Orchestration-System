@@ -31,6 +31,19 @@ make smoke-all                  # every chat model in config/models.yaml: chat /
 
 Jaeger trace UI: http://localhost:16686
 
+## Phase 1 — run the research agent on one subtask
+
+```bash
+uv run python -m infra.seed.generate                       # 200 synthetic claims + documents under data/workspace
+MCP_PORT=7004 uv run python -m packages.tools.mcp_servers.database   # terminal 1
+MCP_PORT=7002 uv run python -m packages.tools.mcp_servers.files      # terminal 2
+uv run scripts/run_subtask.py "For claim CLM-4471: list every loan from the database, then read claims/CLM-4471/lender_response.md and summarise the lender's decision."
+```
+
+Then open Jaeger and look at the newest `foreman` trace: `task → agent.research → iterations → llm.call / gate.decide / tool.*`.
+
+Checks: `uv run pytest` (unit) · `uv run ruff check .` · `uv run mypy` · `make test-live` (against the running stack and live models).
+
 ## Principles
 
 - **$0 by default.** All model roles run on free tiers with per-role fallback chains (`config/models.yaml`). Paid providers are optional and disabled.

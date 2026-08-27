@@ -38,6 +38,7 @@ dependencies = [
     "httpx>=0.27",
     # operator ui (v1)
     "streamlit>=1.38",
+    "jsonschema>=4.26.0",
 ]
 
 [project.optional-dependencies]
@@ -55,6 +56,7 @@ dev = [
     "mypy>=1.11",
     "types-PyYAML",
     "types-redis",
+    "types-jsonschema>=4.26.0.20260518",
 ]
 
 [build-system]
@@ -68,6 +70,7 @@ packages = ["apps", "packages"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "-m 'not integration and not network'"
 markers = [
     "integration: needs the compose stack (redis, postgres, chroma)",
     "network: calls a real provider (never run in CI by default)",
@@ -81,8 +84,26 @@ src = ["apps", "packages", "tests", "scripts"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "SIM"]
 
+[tool.ruff.lint.pycodestyle]
+# The formatter keeps code at 100 columns; E501 only flags docstrings/strings past 120.
+max-line-length = 120
+
+[tool.ruff.lint.isort]
+known-first-party = ["apps", "packages", "infra", "tests", "scripts"]
+
+[tool.ruff.lint.per-file-ignores]
+# Long literal strings: markdown fixtures in the seed generator, SQL/prompts in tests.
+"infra/seed/generate.py" = ["E501"]
+"tests/**" = ["E501"]
+"scripts/**" = ["E501"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
 packages = ["packages", "apps"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# sqlparse ships no type information; the guard is covered by tests/unit/test_sql_guard.py.
+module = ["packages.tools.mcp_servers.database.guard"]
+disallow_untyped_calls = false

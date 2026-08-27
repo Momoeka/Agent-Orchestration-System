@@ -29,8 +29,23 @@ smoke:           ## smoke-test one provider: make smoke P=groq M=llama-3.3-70b-v
 smoke-all:       ## smoke-test every chat entry in config/models.yaml
 	uv run scripts/smoke_provider.py --all
 
-test:
+test:            ## unit tests (integration/network tests are excluded by default)
 	uv run pytest -q
+
+test-live:       ## integration tests against the compose stack, seed, MCP servers and live models
+	uv run pytest -q -m "integration and network" tests/integration
+
+seed:            ## generate the synthetic claims data (tables + documents)
+	uv run python -m infra.seed.generate
+
+mcp-db:          ## run the database MCP server locally on :7004
+	MCP_PORT=7004 uv run python -m packages.tools.mcp_servers.database
+
+mcp-files:       ## run the files MCP server locally on :7002
+	MCP_PORT=7002 uv run python -m packages.tools.mcp_servers.files
+
+run-subtask:     ## run the research agent on one subtask: make run-subtask T="..."
+	uv run scripts/run_subtask.py "$(T)"
 
 lint:
 	uv run ruff check .
