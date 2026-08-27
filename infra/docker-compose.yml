@@ -1,0 +1,65 @@
+# Foreman — local infrastructure (Day 0 scope: stores + tracing only).
+# App services (api, worker, review-ui, mcp-*) are added in Phases 1–4.
+# Usage:  docker compose -f infra/docker-compose.yml up -d
+
+name: foreman
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: foreman
+      POSTGRES_PASSWORD: foreman
+      POSTGRES_DB: foreman
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Creates the SELECT-only user the database MCP server will use (least privilege).
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foreman -d foreman"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  chroma:
+    image: chromadb/chroma:latest
+    ports: ["8001:8000"]
+    volumes:
+      - chromadata:/data
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    volumes:
+      - ollamadata:/root/.ollama
+    # CPU only. After first start:  docker exec foreman-ollama-1 ollama pull nomic-embed-text
+
+  # Jaeger all-in-one accepts OTLP directly (4317 gRPC / 4318 HTTP) and serves the trace UI on 16686.
+  # One container instead of otel-collector + Langfuse (+ ClickHouse + MinIO). Langfuse can be added later as a profile.
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+
+volumes:
+  pgdata:
+  chromadata:
+  ollamadata:
