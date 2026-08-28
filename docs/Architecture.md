@@ -42,7 +42,7 @@ All MCP servers use the **streamable HTTP** transport. Only `api`, `review-ui`, 
 1. `POST /v1/tasks` → validate → insert `tasks` row (`status=queued`) → enqueue `run_task(task_id)` → 202.
 2. Worker builds the graph with a `PostgresSaver` checkpointer and invokes it with `config={"configurable": {"thread_id": task_id}}`.
 3. Nodes run in order (see §4). Each node's state update is checkpointed.
-4. If a node calls `interrupt(payload)`, the graph returns; the worker writes an `approvals` row, sets `tasks.status=awaiting_approval`, notifies Slack/UI, and returns.
+4. If a node calls `interrupt(payload)` (`approve_plan`, `await_approval`, `escalate`), that node has already written an idempotent `approvals` row (dedupe key per task/subtask/attempt/arguments) and notified Slack/UI; the graph returns, and the worker persists the progress so far and sets `tasks.status=awaiting_approval`.
 5. `POST /v1/approvals/{id}/decide` → validate → enqueue `resume_task(task_id, decision)` → worker invokes the graph with `Command(resume=decision)` on the same thread id → execution continues inside the paused node.
 6. On `deliver`, the final output and cost are written to `tasks`; `write_memory` runs; `status=done`.
 7. Every step emits spans (see §9) with `task_id` as a trace attribute.
@@ -83,6 +83,7 @@ class TaskState(TypedDict):
 | `dispatch` | function | plan, subtask_results | — (emits `Send` per ready subtask) | no |
 | `research` / `analysis` / `writing` / `code_exec` | specialist (agent loop) | one subtask + predecessor outputs from tier 1 | subtask_results[id], cost entries | yes — specialist role |
 | `review` | function with one LLM call | subtask result + subtask spec | review_verdicts[id] | yes — reviewer role, structured `ReviewVerdict` |
+| `await_approval` | interrupt | pending_approvals (a specialist's paused loop) | approval_decisions[id] | no |
 | `escalate` | interrupt | verdicts, pending_approval | decision outcome | no |
 | `synthesize` | supervisor | plan, accepted results | final_output | yes — supervisor role, `medium` effort |
 | `deliver` | function | final_output | tasks row, notification | no |
@@ -101,6 +102,8 @@ class TaskState(TypedDict):
 | approve_plan | END | resumed with reject / take over (take over → deliver first) |
 | dispatch | specialist nodes | `Send(specialist, subtask)` for each subtask whose `depends_on` are all accepted |
 | specialist | review | — |
+| review | await_approval | a specialist paused on a gated tool call (L2) |
+| await_approval | same specialist | resumed with the decision; the loop continues from its checkpoint |
 | review | dispatch | accepted and other subtasks remain |
 | review | same specialist | rejected and `retry_counts[id] < 2` (feedback in state) |
 | review | escalate | rejected twice, or `verdict.score < REVIEW_ESCALATE_SCORE` |
@@ -110,7 +113,7 @@ class TaskState(TypedDict):
 | deliver | write_memory | — |
 | write_memory | END | — |
 
-Tool-call approvals (L2) are **not** graph-level nodes; they are `interrupt()` calls **inside** the specialist node's agent loop (see §6.3). The checkpointer handles both identically.
+Tool-call approvals (L2): LangGraph re-executes a whole node on resume, so an `interrupt()` inside the agent loop would replay its model calls. Instead the loop **pauses**: it serialises its messages, pending calls and ledgers into a `LoopCheckpoint` in state; the `await_approval` node interrupts; on resume the specialist node is re-entered with the checkpoint plus the decision and continues from that exact turn (see §6.3). A human rejection is recorded on the result (`denied_tools`) and seeds every retry of that subtask, so the agent cannot ask twice, and the reviewer is told not to penalise the missing action.
 
 ### 4.4 Checkpointing
 
@@ -141,7 +144,7 @@ for iteration in range(MAX_ITERATIONS):
     for call in response.tool_calls:                               # concurrently
         decision = gate.decide(agent, call)                        # span gate.decide
         if decision.block:     results.append(error_result(call, decision.reason))
-        elif decision.approve: results.append(await_approval(call))   # interrupt() inside
+        elif decision.approve: return paused(checkpoint(messages, pending=call, ready=results))   # graph interrupts; resume re-enters here
         else:                  results.append(registry.invoke(call))  # span tool.<server>.<tool>
     messages += [assistant_turn(response), tool_results_turn(results)]   # ALL results in one turn
     check budgets (iterations, tokens, cost) → BudgetExceeded → escalate
@@ -194,7 +197,7 @@ decide(agent, call) → Decision{allow | approve | block, reason, risk, latency_
      (classifier failure → approve; never fail open)
 ```
 
-`approve` → the loop calls `interrupt(ApprovalRequest)`; on resume, `approve` executes the call, `modify` executes with edited args, `reject` returns an error result with the reason.
+`approve` → the loop pauses with a checkpoint and the graph interrupts with an `ApprovalRequest`; on resume, `approve` executes the call, `modify` executes with edited args (re-validated against the tool schema), `reject` returns an error result with the reason and blocks that tool for the rest of the subtask and its retries, `take over` makes the human's text the subtask result (accepted without a model review).
 
 ## 7. Memory
 

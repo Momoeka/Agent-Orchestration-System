@@ -74,7 +74,7 @@ Time budget assumes 2–3 focused hours per day. If a phase overruns by more tha
 
 **Tests**
 - Unit: gate matrix (every risk × every agent × allow-list × rate-limit state); classifier failure → `approve`; unknown tool → `block`; sandbox refuses network (attempt a socket in the code); sandbox timeout kills the container; actions write to the outbox and nothing else.
-- Integration: writing agent proposes `send_email` → gate returns `approve` → loop raises `ApprovalRequired` (interrupt wired in Phase 4; for now the test asserts the exception).
+- Integration: writing agent proposes `send_email` → gate returns `approve` → the loop pauses with a checkpoint (Phase 4 wires the graph interrupt; for now the test asserts the pause).
 
 **Done when** a destructive call is stopped with a logged reason, an unauthorised tool is blocked, the sandbox runs code with no network, and the import-scan test is green.
 

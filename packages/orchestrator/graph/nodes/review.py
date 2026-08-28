@@ -2,7 +2,7 @@
 
 Runs once per superstep after the specialists (fan-in). Uses the reviewer role chain — a different
 model family from the specialists. A reviewer outage is a rejection with feedback, never an
-acceptance (fail closed).
+acceptance (fail closed). Results a human supplied are accepted without a model call.
 """
 
 from __future__ import annotations
@@ -28,15 +28,49 @@ from packages.shared.types.subtask import Subtask, SubtaskResult
 log = structlog.get_logger(__name__)
 
 
+def _human_decisions(result: SubtaskResult) -> str:
+    """Tell the reviewer which actions a human refused, so it judges the rest of the work."""
+    if not result.denied_tools:
+        return ""
+    lines = [
+        "",
+        "## Human decisions",
+        "A human reviewer rejected these tool calls during this subtask; the specialist was right",
+        "not to perform them. Judge the rest of the work and do not reject the result for the",
+        "missing action:",
+        "```json",
+        json.dumps(result.denied_tools, indent=2),
+        "```",
+        "",
+    ]
+    return chr(10).join(lines)
+
+
 def render_review(subtask: Subtask, result: SubtaskResult) -> str:
     spec = subtask.model_dump(exclude={"inputs"})
-    res = result.model_dump(exclude={"cost_entries"})
+    res = result.model_dump(exclude={"cost_entries", "tool_events"})
+    nl = chr(10)
     return (
-        "## Subtask specification\n```json\n"
+        "## Subtask specification"
+        + nl
+        + "```json"
+        + nl
         + json.dumps(spec, indent=2, default=str)
-        + "\n```\n\n## Specialist result\n```json\n"
+        + nl
+        + "```"
+        + nl
+        + nl
+        + "## Specialist result"
+        + nl
+        + "```json"
+        + nl
         + json.dumps(res, indent=2, default=str)
-        + "\n```\n\nJudge the result as JSON."
+        + nl
+        + "```"
+        + nl
+        + _human_decisions(result)
+        + nl
+        + "Judge the result as JSON."
     )
 
 
@@ -62,6 +96,29 @@ def make_review_node(deps: GraphDeps):  # type: ignore[no-untyped-def]
 
         for result in pending:
             subtask = plan[result.subtask_id]
+            if result.human_authored:
+                verdict = ReviewVerdict(
+                    accept=True,
+                    score=5,
+                    subtask_id=subtask.id,
+                    attempt=result.attempt,
+                    reviewer_model="human",
+                    feedback="accepted: provided by a human",
+                )
+                new_verdicts[subtask.id] = verdict
+                events.append(
+                    event(
+                        "reviewed",
+                        f"{subtask.id} attempt {result.attempt}: accepted (human)",
+                        node="review",
+                        subtask_id=subtask.id,
+                        attempt=result.attempt,
+                        accept=True,
+                        score=5,
+                        issues=[],
+                    )
+                )
+                continue
             with span(
                 "node.review",
                 task_id=state["task_id"],

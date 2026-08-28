@@ -22,3 +22,6 @@ node_modules/
 .idea/
 .vscode/
 .DS_Store
+
+# celery beat state
+celerybeat-schedule*

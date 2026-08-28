@@ -1,5 +1,14 @@
 """Shared Pydantic models — every hand-off between components is one of these (Rules.md §2.3)."""
 
+from packages.shared.types.approval import (
+    ApprovalDecision,
+    ApprovalKind,
+    ApprovalLevel,
+    ApprovalRequest,
+    ApprovalStatus,
+    ApprovalTrigger,
+    DecisionKind,
+)
 from packages.shared.types.cost import CostEntry
 from packages.shared.types.deliverable import Deliverable
 from packages.shared.types.gate import Decision, GateAction, ToolEvent
@@ -18,6 +27,13 @@ from packages.shared.types.task import TaskEvent, TaskOptions, TaskStatus
 from packages.shared.types.tools import RiskClass, ToolCall, ToolResult, ToolSpec
 
 __all__ = [
+    "ApprovalDecision",
+    "ApprovalKind",
+    "ApprovalLevel",
+    "ApprovalRequest",
+    "ApprovalStatus",
+    "ApprovalTrigger",
+    "DecisionKind",
     "Complexity",
     "CostEntry",
     "Decision",

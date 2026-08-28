@@ -1,0 +1,220 @@
+"""The operator console renders every page headlessly against a fake API client and posts
+decisions with the operator name. Uses Streamlit's AppTest, so no browser and no server."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import pytest
+from streamlit.testing.v1 import AppTest
+
+import apps.review_ui.api_client as api_client
+import packages.shared.config as config
+from packages.shared.config import Settings
+
+ROOT = Path(__file__).resolve().parents[2]
+
+APPROVAL: dict[str, Any] = {
+    "id": 7,
+    "task_id": "t-1234567890",
+    "subtask_id": "D",
+    "attempt": 1,
+    "kind": "tool_call",
+    "level": "L2",
+    "trigger": "sensitive_tool_call",
+    "agent": "writing",
+    "proposed_action": {
+        "tool": "actions_send_email",
+        "risk": "destructive",
+        "gate_reason": "destructive tools always need a human",
+        "arguments": {"to": "lender@example.test", "subject": "Complaint", "body": "Dear lender"},
+    },
+    "reasoning": "the request asked to send it",
+    "context": {
+        "request": "send the letter",
+        "plan": [
+            {"id": "A", "specialist": "research", "description": "loans", "status": "accepted"},
+            {"id": "D", "specialist": "writing", "description": "send", "status": "pending"},
+        ],
+        "completed_subtasks": [
+            {
+                "id": "A",
+                "attempt": 1,
+                "status": "accepted",
+                "score": 5,
+                "output_preview": "3 loans",
+                "sources": ["db"],
+            }
+        ],
+    },
+    "status": "pending",
+    "decision": None,
+    "decision_payload": None,
+    "decided_by": None,
+    "reason": None,
+    "created_at": "2026-08-28T10:00:00+00:00",
+    "decided_at": None,
+    "expires_at": "2026-08-29T10:00:00+00:00",
+}
+TASK: dict[str, Any] = {
+    "task_id": "t-1234567890",
+    "user_id": "u_42",
+    "request": "send the letter",
+    "status": "awaiting_approval",
+    "error": None,
+    "plan": {
+        "confidence": 0.9,
+        "sensitive_actions": ["send email"],
+        "subtasks": [
+            {"id": "A", "specialist": "research", "depends_on": [], "description": "loans"}
+        ],
+    },
+    "subtasks": [
+        {
+            "id": "A",
+            "specialist": "research",
+            "attempt": 1,
+            "status": "accepted",
+            "result": {
+                "output": "3 loans",
+                "sources": ["db"],
+                "tools_used": ["db_query"],
+                "human_authored": False,
+            },
+            "verdict": {
+                "accept": True,
+                "score": 5,
+                "issues": [],
+                "feedback": "",
+                "reviewer_model": "m",
+            },
+        }
+    ],
+    "approvals": [
+        {
+            "id": 7,
+            "kind": "tool_call",
+            "level": "L2",
+            "status": "pending",
+            "subtask_id": "D",
+            "created_at": "2026-08-28T10:00:00+00:00",
+        }
+    ],
+    "pending_approval_id": 7,
+    "final_output": None,
+    "llm_calls": 4,
+    "tokens": 1234,
+    "tool_calls": 2,
+    "tool_calls_not_executed": 0,
+    "cost_usd": None,
+}
+OUTBOX = [
+    {
+        "id": 1,
+        "kind": "email",
+        "status": "queued_for_human",
+        "task_id": "t-1234567890",
+        "created_at": "2026-08-28T10:00:00+00:00",
+        "payload": {"to": "lender@example.test"},
+    }
+]
+
+
+class FakeClient:
+    decisions: list[dict[str, Any]] = []
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def health(self) -> bool:
+        return True
+
+    def approvals(self, status: str | None = "pending", limit: int = 100) -> list[dict[str, Any]]:
+        return [APPROVAL] if status in (None, "pending") else []
+
+    def approval(self, approval_id: int) -> dict[str, Any]:
+        assert approval_id == 7
+        return APPROVAL
+
+    def decide(
+        self,
+        approval_id: int,
+        decision: str,
+        *,
+        payload: Any = None,
+        reason: str = "",
+        decided_by: str = "operator",
+    ) -> dict[str, Any]:
+        self.decisions.append(
+            {
+                "id": approval_id,
+                "decision": decision,
+                "payload": payload,
+                "reason": reason,
+                "by": decided_by,
+            }
+        )
+        return {**APPROVAL, "status": "approved"}
+
+    def task(self, task_id: str) -> dict[str, Any]:
+        assert task_id == "t-1234567890"
+        return TASK
+
+    def create_task(
+        self, request: str, user_id: str, *, require_human_review: bool = False
+    ) -> dict[str, Any]:
+        return {"task_id": "t-new", "status": "queued"}
+
+    def outbox(self, limit: int = 100) -> list[dict[str, Any]]:
+        return OUTBOX
+
+
+@pytest.fixture(autouse=True)
+def fake_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    FakeClient.decisions = []
+    monkeypatch.setattr(api_client, "ForemanClient", FakeClient)
+    monkeypatch.setattr(config, "get_settings", lambda: Settings(_env_file=None, api_key="x"))  # type: ignore[call-arg]
+
+
+def run(path: str) -> AppTest:
+    at = AppTest.from_file(str(ROOT / path), default_timeout=60)
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    return at
+
+
+def test_home_shows_queue_metrics() -> None:
+    at = run("apps/review_ui/app.py")
+    assert [m.value for m in at.metric] == ["1", "1", "0"]
+
+
+def test_approvals_page_renders_and_posts_the_decision() -> None:
+    at = run("apps/review_ui/pages/1_Approvals.py")
+    assert at.selectbox(key="selected").value == 7
+    text = " ".join(m.value for m in at.markdown)
+    assert "actions_send_email" in text or any("actions_send_email" in c.value for c in at.code)
+    assert "send the letter" in text
+    assert "3 loans" in " ".join(m.value for m in at.expander[0].markdown)
+    at.sidebar.text_input(key="operator").input("sayed")
+    at.text_area(key="reason-7").input("looks right").run()
+    approve = next(b for b in at.button if "Approve" in b.label)
+    approve.click().run()
+    assert not at.exception
+    assert FakeClient.decisions == [
+        {"id": 7, "decision": "approve", "payload": None, "reason": "looks right", "by": "sayed"}
+    ]
+
+
+def test_tasks_page_renders_a_task() -> None:
+    at = run("apps/review_ui/pages/2_Tasks.py")
+    at.text_input(key="task-id-input").input("t-1234567890").run()
+    assert not at.exception, [e.value for e in at.exception]
+    text = " ".join(m.value for m in at.markdown)
+    assert "awaiting" in text and "3 loans" in text
+    assert any("approval #7" in w.value for w in at.warning)
+
+
+def test_outbox_page_lists_queued_mail() -> None:
+    at = run("apps/review_ui/pages/3_Outbox.py")
+    assert any("lender@example.test" in c.value for c in at.code)

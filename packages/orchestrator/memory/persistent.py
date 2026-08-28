@@ -6,13 +6,31 @@ from __future__ import annotations
 import datetime as dt
 import json
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, select
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    delete,
+    select,
+)
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from packages.orchestrator.memory.db import Base
+from packages.shared.types.approval import (
+    STATUS_FOR_DECISION,
+    ApprovalDecision,
+    ApprovalRequest,
+    ApprovalStatus,
+)
 from packages.shared.types.cost import CostEntry
 from packages.shared.types.deliverable import Deliverable
 from packages.shared.types.gate import ToolEvent
@@ -28,6 +46,10 @@ def _now() -> dt.datetime:
 
 def _json(model: Any) -> Any:
     return json.loads(model.model_dump_json()) if model is not None else None
+
+
+def _iso(value: dt.datetime | None) -> str | None:
+    return value.isoformat() if value else None
 
 
 class TaskRow(Base):
@@ -112,6 +134,36 @@ class OutboxRow(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class ApprovalRow(Base):
+    """A decision point raised by the graph (Architecture.md §8). ``dedupe_key`` makes creation
+    idempotent across node re-execution."""
+
+    __tablename__ = "approvals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    dedupe_key: Mapped[str] = mapped_column(String(160), unique=True)
+    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("tasks.id"), index=True)
+    subtask_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, default=1)
+    kind: Mapped[str] = mapped_column(String(16))
+    level: Mapped[str] = mapped_column(String(4))
+    trigger: Mapped[str] = mapped_column(String(32))
+    agent: Mapped[str] = mapped_column(String(32), default="")
+    proposed_action: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    reasoning: Mapped[str] = mapped_column(Text, default="")
+    context: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(
+        String(16), index=True, default=ApprovalStatus.PENDING.value
+    )
+    decision: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    decision_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    decided_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class AuditLogRow(Base):
     __tablename__ = "audit_log"
 
@@ -176,6 +228,12 @@ class TaskStore:
             if row is None:
                 return
             row.plan = _json(plan)
+            keep = [sub.id for sub in plan.subtasks]
+            s.execute(  # a human may have replaced the plan (L3 modify): drop subtasks that are gone
+                delete(SubtaskRow)
+                .where(SubtaskRow.task_id == task_id)
+                .where(SubtaskRow.subtask_id.not_in(keep))
+            )
             for sub in plan.subtasks:
                 s.merge(
                     SubtaskRow(
@@ -188,6 +246,90 @@ class TaskStore:
                     )
                 )
             s.commit()
+
+    def record_progress(
+        self,
+        task_id: str,
+        *,
+        results: dict[str, SubtaskResult],
+        verdicts: dict[str, ReviewVerdict],
+        cost_entries: list[CostEntry],
+        tool_events: list[ToolEvent] | None = None,
+    ) -> None:
+        """Persist what the graph has done so far — called when a task pauses for a human, so the
+        task view is truthful while people decide."""
+        with self._sessions() as s:
+            if s.get(TaskRow, task_id) is None:
+                return
+            self._write_progress(s, task_id, results, verdicts, cost_entries, tool_events)
+            s.commit()
+
+    @staticmethod
+    def _write_progress(
+        s: Session,
+        task_id: str,
+        results: dict[str, SubtaskResult],
+        verdicts: dict[str, ReviewVerdict],
+        cost_entries: list[CostEntry],
+        tool_events: list[ToolEvent] | None,
+    ) -> None:
+        for sid, result in results.items():
+            verdict = verdicts.get(sid)
+            existing = s.get(SubtaskRow, f"{task_id}:{sid}")
+            if existing is None:
+                existing = SubtaskRow(
+                    id=f"{task_id}:{sid}",
+                    task_id=task_id,
+                    subtask_id=sid,
+                    specialist="",
+                    spec={},
+                    status="",
+                )
+                s.add(existing)
+            existing.attempt = result.attempt
+            existing.result = _json(result)
+            existing.verdict = _json(verdict)
+            accepted = verdict is not None and verdict.accept and verdict.attempt == result.attempt
+            existing.status = (
+                "accepted"
+                if accepted
+                else "rejected"
+                if verdict is not None
+                else result.status.value
+            )
+        # The ledgers mirror graph state, which accumulates across pauses: replace, never append twice.
+        s.execute(delete(LLMCallRow).where(LLMCallRow.task_id == task_id))
+        s.execute(delete(ToolInvocationRow).where(ToolInvocationRow.task_id == task_id))
+        for c in cost_entries:
+            s.add(
+                LLMCallRow(
+                    task_id=task_id,
+                    role=c.role,
+                    provider=c.provider,
+                    model=c.model,
+                    input_tokens=c.input_tokens,
+                    output_tokens=c.output_tokens,
+                    cost_usd=c.cost_usd,
+                    latency_ms=c.latency_ms,
+                    fallback=c.fallback,
+                )
+            )
+        for t in tool_events or []:
+            s.add(
+                ToolInvocationRow(
+                    task_id=task_id,
+                    subtask_id=t.subtask_id,
+                    agent=t.agent,
+                    tool=t.tool,
+                    args_hash=t.args_hash,
+                    risk=t.risk.value if t.risk else None,
+                    decision=t.decision.value,
+                    reason=t.reason[:2000],
+                    ok=t.ok,
+                    latency_ms=t.latency_ms,
+                    result_size=t.result_size,
+                )
+            )
 
     def finish_task(
         self,
@@ -211,62 +353,7 @@ class TaskStore:
             row.final_output = _json(deliverable)
             row.cost_usd = cost_usd
             row.error = error
-            for sid, result in results.items():
-                verdict = verdicts.get(sid)
-                existing = s.get(SubtaskRow, f"{task_id}:{sid}")
-                if existing is None:
-                    existing = SubtaskRow(
-                        id=f"{task_id}:{sid}",
-                        task_id=task_id,
-                        subtask_id=sid,
-                        specialist="",
-                        spec={},
-                        status="",
-                    )
-                    s.add(existing)
-                existing.attempt = result.attempt
-                existing.result = _json(result)
-                existing.verdict = _json(verdict)
-                accepted = (
-                    verdict is not None and verdict.accept and verdict.attempt == result.attempt
-                )
-                existing.status = (
-                    "accepted"
-                    if accepted
-                    else "rejected"
-                    if verdict is not None
-                    else result.status.value
-                )
-            for c in cost_entries:
-                s.add(
-                    LLMCallRow(
-                        task_id=task_id,
-                        role=c.role,
-                        provider=c.provider,
-                        model=c.model,
-                        input_tokens=c.input_tokens,
-                        output_tokens=c.output_tokens,
-                        cost_usd=c.cost_usd,
-                        latency_ms=c.latency_ms,
-                        fallback=c.fallback,
-                    )
-                )
-            for t in tool_events or []:
-                s.add(
-                    ToolInvocationRow(
-                        task_id=task_id,
-                        subtask_id=t.subtask_id,
-                        agent=t.agent,
-                        tool=t.tool,
-                        args_hash=t.args_hash,
-                        risk=t.risk.value if t.risk else None,
-                        decision=t.decision.value,
-                        reason=t.reason[:2000],
-                        ok=t.ok,
-                        latency_ms=t.latency_ms,
-                        result_size=t.result_size,
-                    )
-                )
+            self._write_progress(s, task_id, results, verdicts, cost_entries, tool_events)
             for e in events:
                 s.add(
                     AuditLogRow(
@@ -298,6 +385,9 @@ class TaskStore:
             tools = s.scalars(
                 select(ToolInvocationRow).where(ToolInvocationRow.task_id == task_id)
             ).all()
+            approvals = s.scalars(
+                select(ApprovalRow).where(ApprovalRow.task_id == task_id).order_by(ApprovalRow.id)
+            ).all()
             return {
                 "task_id": row.id,
                 "user_id": row.user_id,
@@ -320,15 +410,159 @@ class TaskStore:
                 "llm_calls": len(calls),
                 "tokens": sum(c.input_tokens + c.output_tokens for c in calls),
                 "tool_calls": len(tools),
-                "tool_calls_not_executed": sum(1 for t in tools if t.decision != "allow"),
+                "tool_calls_not_executed": sum(1 for t in tools if t.ok is None),
+                "approvals": [
+                    {
+                        "id": a.id,
+                        "kind": a.kind,
+                        "level": a.level,
+                        "status": a.status,
+                        "decision": a.decision,
+                    }
+                    for a in approvals
+                ],
+                "pending_approval_id": next(
+                    (a.id for a in approvals if a.status == ApprovalStatus.PENDING.value), None
+                ),
                 "error": row.error,
-                "created_at": row.created_at.isoformat() if row.created_at else None,
-                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+                "created_at": _iso(row.created_at),
+                "updated_at": _iso(row.updated_at),
             }
 
 
+class ApprovalStore:
+    """Lifecycle of approval requests: pending → approved | modified | rejected | taken_over | expired."""
+
+    def __init__(self, session_factory: Callable[[], Session]) -> None:
+        self._sessions = session_factory
+
+    def get_or_create(
+        self, request: ApprovalRequest, *, expires_at: dt.datetime | None
+    ) -> tuple[ApprovalRow, bool]:
+        with self._sessions() as s:
+            existing = s.scalar(select(ApprovalRow).where(ApprovalRow.dedupe_key == request.key))
+            if existing is not None:
+                return existing, False
+            row = ApprovalRow(
+                dedupe_key=request.key,
+                task_id=request.task_id,
+                subtask_id=request.subtask_id,
+                attempt=request.attempt,
+                kind=request.kind.value,
+                level=request.level.value,
+                trigger=request.trigger.value,
+                agent=request.agent,
+                proposed_action=request.proposed_action,
+                reasoning=request.reasoning,
+                context=request.context,
+                expires_at=expires_at,
+            )
+            s.add(row)
+            try:
+                s.commit()
+            except IntegrityError:  # a concurrent creator won the race
+                s.rollback()
+                found = s.scalar(select(ApprovalRow).where(ApprovalRow.dedupe_key == request.key))
+                if found is None:
+                    raise
+                return found, False
+            s.add(
+                AuditLogRow(
+                    task_id=request.task_id,
+                    actor="graph",
+                    action="approval.requested",
+                    payload={"approval_id": row.id, "level": row.level, "kind": row.kind},
+                )
+            )
+            s.commit()
+            s.refresh(row)
+            return row, True
+
+    def get(self, approval_id: int) -> ApprovalRow | None:
+        with self._sessions() as s:
+            return s.get(ApprovalRow, approval_id)
+
+    def list(self, *, status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+        with self._sessions() as s:
+            stmt = select(ApprovalRow).order_by(ApprovalRow.id.desc()).limit(limit)
+            if status:
+                stmt = stmt.where(ApprovalRow.status == status)
+            return [self.view(r) for r in s.scalars(stmt).all()]
+
+    @staticmethod
+    def view(row: ApprovalRow) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "task_id": row.task_id,
+            "subtask_id": row.subtask_id,
+            "attempt": row.attempt,
+            "kind": row.kind,
+            "level": row.level,
+            "trigger": row.trigger,
+            "agent": row.agent,
+            "proposed_action": row.proposed_action,
+            "reasoning": row.reasoning,
+            "context": row.context,
+            "status": row.status,
+            "decision": row.decision,
+            "decision_payload": row.decision_payload,
+            "decided_by": row.decided_by,
+            "reason": row.reason,
+            "created_at": _iso(row.created_at),
+            "decided_at": _iso(row.decided_at),
+            "expires_at": _iso(row.expires_at),
+        }
+
+    def record_decision(
+        self, approval_id: int, decision: ApprovalDecision, *, status: ApprovalStatus | None = None
+    ) -> ApprovalRow | None:
+        """Pending → decided, atomically. Returns None if the request was not pending."""
+        with self._sessions() as s:
+            row = s.get(ApprovalRow, approval_id)
+            if row is None or row.status != ApprovalStatus.PENDING.value:
+                return None
+            row.status = (status or STATUS_FOR_DECISION[decision.decision]).value
+            row.decision = decision.decision.value
+            row.decision_payload = decision.payload
+            row.decided_by = decision.decided_by
+            row.reason = decision.reason
+            row.decided_at = _now()
+            s.add(
+                AuditLogRow(
+                    task_id=row.task_id,
+                    actor=decision.decided_by,
+                    action=f"approval.{row.status}",
+                    payload={"approval_id": row.id, "reason": decision.reason},
+                )
+            )
+            s.commit()
+            s.refresh(row)
+            return row
+
+    def decision_of(self, approval_id: int) -> ApprovalDecision | None:
+        row = self.get(approval_id)
+        if row is None or row.decision is None:
+            return None
+        return ApprovalDecision(
+            decision=row.decision,  # type: ignore[arg-type]
+            payload=row.decision_payload or {},
+            reason=row.reason or "",
+            decided_by=row.decided_by or "operator",
+        )
+
+    def due(self, now: dt.datetime) -> Sequence[ApprovalRow]:
+        with self._sessions() as s:
+            stmt = (
+                select(ApprovalRow)
+                .where(ApprovalRow.status == ApprovalStatus.PENDING.value)
+                .where(ApprovalRow.expires_at.is_not(None))
+                .where(ApprovalRow.expires_at <= now)
+            )
+            return list(s.scalars(stmt).all())
+
+
 class OutboxRepository:
-    """Written by the actions MCP server. Read by humans (Phase 4 UI). Never drained automatically."""
+    """Written by the actions MCP server. Read by humans (the operator UI). Never drained automatically."""
 
     def __init__(self, session_factory: Callable[[], Session]) -> None:
         self._sessions = session_factory
@@ -351,7 +585,7 @@ class OutboxRepository:
                     "kind": r.kind,
                     "payload": r.payload,
                     "status": r.status,
-                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "created_at": _iso(r.created_at),
                 }
                 for r in rows
             ]

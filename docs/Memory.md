@@ -4,6 +4,52 @@ Running log across coding sessions. **Read this first; update it last** (Rules.m
 
 ---
 
+## 2026-08-28 — Phase 4: human-in-the-loop — DONE
+
+### Built
+- **Types** `packages/shared/types/approval.py`: `ApprovalLevel L1–L4`, `ApprovalKind tool_call|plan|escalation`, `ApprovalTrigger`, `ApprovalStatus pending → approved|modified|rejected|taken_over|expired`, `DecisionKind approve|modify|reject|take_over`, `ApprovalRequest` (the context package), `ApprovalDecision`.
+- **Pausable agent loop** (`loop/agent_loop.py`): `run_agent_loop` returns `SubtaskResult | PausedLoop`. On a gate `approve` the loop serialises messages, pending calls, ready results, ledgers and budgets into a JSON-safe `LoopCheckpoint` and returns; `resume=LoopResume(checkpoint, decision)` re-enters at that exact turn — approve executes, modify re-validates the edited arguments against the tool schema then executes, reject returns an error tool result, take over becomes the result (`human_authored=True`). Several gated calls in one turn are decided one at a time. **A rejection is final:** `denied` (tool → reason) lives in the checkpoint and in `SubtaskResult.denied_tools`; `send_for` seeds every retry of that subtask with it; a repeated call is blocked before the gate ("a human already rejected …").
+- **Graph**: state gains `pending_approvals` / `approval_decisions` (merge_dicts, `None` = cleared) and `SpecialistInput.resume` / `.denied`; nodes `await_approval` (L2), `approve_plan` (L3: approve · modify → validated plan, `set_plan` drops removed subtasks · reject → cancelled · take over → human deliverable), `escalate` (L4: approve → retry counts reset · modify → human `SubtaskResult` + verdict · take over · reject → cancelled); `review` accepts `human_authored` results without a model call and gets a `## Human decisions` section when `denied_tools` is set; `deliver` writes `cancelled`. Every interrupt node first calls `approvals.get_or_create` (dedupe keys `task:tool_call:sid:attempt:args_hash`, `task:plan:<sha16>`, `task:escalation:<n>`) so a replayed node never creates a second row, then `interrupt(request)`.
+- **HITL package** `orchestrator/hitl/`: `escalation.py` (`config/escalation.yaml` → level, deadline, timeout decision; `on_timeout` may only be reject/cancel — validated), `approvals.py` (context package: request, plan with per-subtask status, completed subtasks with previews, the proposed call / plan / escalation options), `notify.py` (log + optional Slack webhook), `timeouts.py` (`expire_due` → `expired` with the timeout decision, returns the (task, approval) pairs to resume).
+- **Persistence**: `approvals` table (Alembic `79e9c30b5c79`), `ApprovalStore` (`get_or_create`, atomic `record_decision` pending→decided, `decision_of`, `due`, `list`, `view`), `TaskStore.record_progress` (subtask rows + ledgers replaced from graph state when a task pauses, so the task view is truthful while people decide), `task_view` carries approvals + `pending_approval_id`; `tool_calls_not_executed` counts `ok IS NULL`.
+- **Checkpoint serializer** `graph/serde.py`: explicit `allowed_msgpack_modules` allowlist of every model/enum that lands in state (LangGraph warns it will block unregistered types); used by the worker's `AsyncPostgresSaver` and every test saver.
+- **Worker**: `execute_task(task_id, resume=decision)` → `Command(resume=…)`; on `__interrupt__` → `record_progress` + `awaiting_approval`; Celery tasks `foreman.resume_task(task_id, approval_id)` and beat `foreman.expire_approvals` (every 60 s; `make beat` — `celery worker -B` is refused on Windows).
+- **API**: `GET /v1/approvals?status=`, `GET /v1/approvals/{id}`, `POST /v1/approvals/{id}/decide` (reject without a reason → 422; a second decision → 409; enqueues the resume), `GET /v1/outbox`.
+- **Operator UI** `apps/review_ui/` (Streamlit, Design.md tokens): home metrics; Approvals — queue, context package, the four decisions with editable arguments / plan / take-over text, operator name recorded on the decision; Tasks — submit, plan, subtasks with verdicts, approvals, deliverable; Outbox. `make ui`.
+- **Prompts**: supervisor / writing / reviewer / synthesis no longer say "never send". When the request names a recipient the plan includes the send step, the writing agent calls `actions_send_email` after writing the letter (the gate pauses it), and the reviewer accepts a `queued_for_human` result or a human-rejected call.
+
+### Verified
+- Unit: **167 passed** — the decision matrix through the whole graph with fakes (`test_hitl_flow.py`: L2 approve / modify / invalid modify / reject / take over / worker restart / rejection survives a review retry / timeout decision; L3 approve / modify / invalid modify / reject / take over; L4 approve / modify / take over / reject), loop pause-resume (`test_loop_pause_resume.py`), policy + store + timeouts (`test_hitl_policy.py`), API (`test_api_approvals.py`), the Streamlit pages headlessly via `AppTest` (`test_review_ui.py`). `mypy --strict` clean (135 files), ruff clean.
+- Integration on Postgres (`test_hitl_postgres_resume.py`, `test_graph_postgres_resume.py`): pause → fresh `AsyncPostgresSaver` + graph → decide → done, for approve and reject. 3 passed.
+- **Live** (free tiers, $0; API + worker + beat + Streamlit + the 5 MCP servers), request "Review claim CLM-4471: list its loans …, draft a complaint letter to the lender, and send the letter by email to lender@example.test":
+  - the plan gained a fourth subtask (writing: send); every task paused at L2 on `actions_send_email` with the full letter in the arguments (150–300 s to the pause, 26–33 LLM calls per task).
+  - **approve** — worker killed while paused, a new worker started, decision via the API → resumed in 26 s (only D's remaining turn + review + synthesis; nothing replayed); outbox row `queued_for_human`; ledger `approve / ok`.
+  - **modify** — recipient and subject edited → the outbox row carries the edited values; ledger reason "modify by sayed: …".
+  - **reject** — nothing queued; the agent finished with "drafted but not sent"; the reviewer accepted it; `denied_tools` stored on the subtask.
+  - **take over** — the human's text became D's result (`human_authored`), accepted without a model review; deliverable done; ledger "taken over by sayed", `ok` NULL.
+  - **L3** (`require_human_review`) — paused at the plan with 1 LLM call already visible in the task view; approve → ran; the later L2 reject → done.
+  - Beat's `expire_approvals` runs every minute (nothing due — deadlines are 24/48 h).
+
+### Findings fixed during the live run
+1. The Phase 2 prompts told the supervisor to plan a DRAFT and the writer never to send, so the first showcase task completed without ever proposing the email. The gate, not the plan, now decides whether an action happens.
+2. After a rejection the agent asked again in the same loop; and once the reviewer rejected the "not sent" result, the fresh retry loop asked a third time. Fixed with the per-subtask denial list (checkpoint → result → retry seed) and the reviewer's `## Human decisions` section. Live: task 4 ended after three rejections with no fourth request; task 6 after two.
+3. `celery worker -B` does not work on Windows → beat is a separate process.
+4. LangGraph "Deserializing unregistered type … will be blocked in a future version" on every resume → `graph/serde.py`.
+5. While paused the task view showed `planned` / 0 calls → `record_progress` on interrupt.
+
+### Decisions
+- L2 is a **pausable loop + `await_approval` node**, not `interrupt()` inside the loop: LangGraph re-executes a node on resume, which would replay the loop's model calls. The checkpoint is plain JSON in graph state.
+- Timeouts never approve (validated in `EscalationPolicy`); reject requires a reason; decisions are single-shot; approval rows are idempotent by dedupe key.
+- Take over at L2 replaces the *subtask* result; at L3/L4 it replaces the *deliverable*. Human results skip the model reviewer (`reviewer_model="human"`).
+- Slack notification is optional (`SLACK_WEBHOOK_URL` empty → log only).
+
+### Open / next → Phase 5 (memory)
+- Timeout expiry is covered by unit tests only (24/48 h deadlines); a live check needs a throwaway `timeouts_hours`.
+- The L4 "modify" editor is a plain text box; richer editing is Phase 7 UI work.
+- Rotate the paid TokenRouter key (user's action; unused, `ENABLE_PAID_PROVIDERS=false`).
+
+---
+
 ## 2026-08-28 — Phase 3: tools + gate — DONE
 
 ### Built

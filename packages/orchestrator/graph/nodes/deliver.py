@@ -1,4 +1,4 @@
-"""Persist the outcome (tier 2) and mark the task done or failed."""
+"""Persist the outcome (tier 2) and mark the task done, cancelled, or failed."""
 
 from __future__ import annotations
 
@@ -33,7 +33,12 @@ def make_deliver_node(deps: GraphDeps):  # type: ignore[no-untyped-def]
         }
         known = [c.cost_usd for c in ledger if c.cost_usd is not None]
         cost_usd = sum(known) if known else None
-        status = TaskStatus.DONE if deliverable is not None else TaskStatus.FAILED
+        if deliverable is not None:
+            status = TaskStatus.DONE
+        elif state.get("status") == "cancelled":
+            status = TaskStatus.CANCELLED
+        else:
+            status = TaskStatus.FAILED
         error = None if deliverable is not None else (state.get("error") or "no deliverable")
 
         with span("node.deliver", task_id=task_id, status=status.value):
@@ -56,14 +61,15 @@ def make_deliver_node(deps: GraphDeps):  # type: ignore[no-untyped-def]
             "error": error,
             "events": [
                 event(
-                    "delivered" if deliverable else "failed",
+                    "delivered" if deliverable else status.value,
                     f"task {status.value}; {len(ledger)} LLM calls; {len(tool_events)} tool calls "
-                    f"({blocked} not executed)",
+                    f"({blocked} not executed by the gate alone)",
                     node="deliver",
                     cost_usd=cost_usd,
                     llm_calls=len(ledger),
                     tool_calls=len(tool_events),
                     tool_calls_not_executed=blocked,
+                    human_authored=bool(deliverable and deliverable.human_authored),
                 )
             ],
         }

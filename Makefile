@@ -74,6 +74,12 @@ api:             ## run the orchestration API on :8000
 worker:          ## run the Celery worker (solo pool works on Windows)
 	uv run celery -A packages.orchestrator.worker worker --pool=solo -l info
 
+beat:            ## run Celery beat: expires overdue approvals every minute (separate process; -B is not supported on Windows)
+	uv run celery -A packages.orchestrator.worker beat -l info
+
+ui:              ## run the operator console on :8501
+	uv run streamlit run apps/review_ui/app.py --server.port 8501 --server.headless true
+
 lint:
 	uv run ruff check .
 

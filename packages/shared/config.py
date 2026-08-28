@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     tier1_ttl_hours: int = 24
 
     # --- ops ---
+    api_base_url: str = "http://localhost:8000"  # what the operator UI talks to
     api_key: str = ""
     slack_webhook_url: str = ""
     log_level: str = "INFO"

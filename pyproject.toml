@@ -96,6 +96,7 @@ known-first-party = ["apps", "packages", "infra", "tests", "scripts"]
 "infra/seed/generate.py" = ["E501"]
 "tests/**" = ["E501"]
 "scripts/**" = ["E501"]
+"apps/review_ui/pages/*.py" = ["N999"]  # Streamlit orders pages by the numeric prefix
 
 [tool.mypy]
 python_version = "3.12"

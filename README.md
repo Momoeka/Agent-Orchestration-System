@@ -74,7 +74,38 @@ small LLM classifier decides whether a human needs to look, and any failure of t
 **approve**. Each decision is recorded in `tool_invocations` (arguments hashed, never stored). The
 actions server cannot send anything: its only effect is a row in `outbox`.
 
-The graph (docs/diagrams/02): intake → recall_memory → plan → dispatch → specialists (parallel `Send()` per ready subtask) → review → retry / dispatch dependents / synthesize → deliver → write_memory. State is checkpointed in Postgres after every node, so a worker that dies mid-task resumes from the last checkpoint on the next run (`tests/integration/test_graph_postgres_resume.py`).
+The graph (docs/diagrams/02): intake → recall_memory → plan → (approve_plan) → dispatch → specialists (parallel `Send()` per ready subtask) → review → retry / await_approval / dispatch dependents / escalate / synthesize → deliver → write_memory. State is checkpointed in Postgres after every node, so a worker that dies mid-task resumes from the last checkpoint on the next run (`tests/integration/test_graph_postgres_resume.py`).
+
+## Phase 4 — human in the loop
+
+```bash
+uv run alembic upgrade head                                               # adds the approvals table
+uv run celery -A packages.orchestrator.worker worker --pool=solo -l info    # terminal 3
+uv run celery -A packages.orchestrator.worker beat -l info                 # terminal 5: expires overdue approvals (-B is not supported on Windows)
+uv run streamlit run apps/review_ui/app.py --server.port 8501              # terminal 6: operator console
+
+curl -s "http://localhost:8000/v1/approvals?status=pending" -H "X-API-Key: $API_KEY"
+curl -s -X POST http://localhost:8000/v1/approvals/<id>/decide -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"decision": "modify", "payload": {"arguments": {"to": "complaints@lender.example.test", "subject": "…", "body": "…"}}, "reason": "route to the complaints inbox", "decided_by": "sayed"}'
+uv run pytest -q -m integration tests/integration/test_hitl_postgres_resume.py   # pause → new worker → decide → done, on Postgres
+```
+
+Three places pause the graph, all through LangGraph `interrupt()` on the Postgres checkpointer, so a paused task
+survives worker restarts and is resumed with `Command(resume=decision)`:
+
+| Level | Where | Trigger | approve | modify | reject | take over |
+|---|---|---|---|---|---|---|
+| L2 | `await_approval` (a specialist's loop paused on a gated call) | destructive tool, or the classifier said so | run the call | run it with edited arguments (re-validated against the tool schema) | the agent gets an error result and may not ask again in that subtask | the human's text becomes the subtask result, no model review |
+| L3 | `approve_plan` | plan confidence below threshold, or `require_human_review` | run the plan | run the edited plan | cancel the task | the human's text becomes the deliverable |
+| L4 | `escalate` | a subtask failed review `max_retries` times | one more round | accept a human-written result for the failing subtask | cancel the task | the human's text becomes the deliverable |
+
+The agent loop itself is pausable: when the gate says *approve*, the loop serialises its messages, pending calls
+and ledgers into a checkpoint inside graph state and returns; the resumed loop continues from exactly that turn —
+no model call is replayed. Approval rows are idempotent (dedupe key per task/subtask/attempt/arguments), decisions
+are single-shot (`409` on a second decision), rejecting needs a reason, and timeouts (`config/escalation.yaml`) can
+only reject or cancel — nothing auto-approves. The Streamlit console shows the queue, the context package (request,
+plan progress, completed subtasks, the proposed call), and the four decisions; everything the agents proposed to send
+is listed on the Outbox page and nothing is ever sent by Foreman.
 
 ## Principles
 

@@ -76,6 +76,11 @@ class SubtaskResult(SubmittedResult):
     cost_entries: list[CostEntry] = Field(default_factory=list)
     tool_events: list[ToolEvent] = Field(default_factory=list)
     fallback_used: bool = False
+    human_authored: bool = False
+    denied_tools: dict[str, str] = Field(
+        default_factory=dict,
+        description="tool -> the human's reason; a rejection stands for every retry of this subtask",
+    )
     error: str | None = None
 
     @property
