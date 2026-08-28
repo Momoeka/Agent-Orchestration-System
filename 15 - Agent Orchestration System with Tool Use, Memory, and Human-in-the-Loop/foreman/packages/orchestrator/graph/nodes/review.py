@@ -25,9 +25,11 @@ from packages.shared.types.cost import CostEntry
 from packages.shared.types.gate import ToolEvent
 from packages.shared.types.plan import ExecutionPlan
 from packages.shared.types.review import ReviewJudgement, ReviewVerdict
-from packages.shared.types.subtask import Subtask, SubtaskResult
+from packages.shared.types.subtask import Subtask, SubtaskResult, SubtaskStatus
 
 log = structlog.get_logger(__name__)
+
+MIN_OUTPUT_CHARS = 10  # empty or a few characters: rejected by rule, no model asked
 
 
 def _human_decisions(result: SubtaskResult) -> str:
@@ -118,6 +120,38 @@ def make_review_node(deps: GraphDeps):  # type: ignore[no-untyped-def]
                         accept=True,
                         score=5,
                         issues=[],
+                    )
+                )
+                continue
+            if (
+                result.status == SubtaskStatus.COMPLETED
+                and len(result.output.strip()) < MIN_OUTPUT_CHARS
+            ):
+                verdict = ReviewVerdict(
+                    accept=False,
+                    score=1,
+                    subtask_id=subtask.id,
+                    attempt=result.attempt,
+                    reviewer_model="rule",
+                    issues=["empty output"],
+                    feedback=(
+                        "The result is marked completed but its output is empty. Produce the "
+                        "actual content the subtask asks for."
+                    ),
+                )
+                new_verdicts[subtask.id] = verdict
+                retry_increments[subtask.id] = retry_counts.get(subtask.id, 0) + 1
+                retry_counts = {**retry_counts, **retry_increments}
+                events.append(
+                    event(
+                        "reviewed",
+                        f"{subtask.id} attempt {result.attempt}: rejected by rule (empty output)",
+                        node="review",
+                        subtask_id=subtask.id,
+                        attempt=result.attempt,
+                        accept=False,
+                        score=1,
+                        issues=["empty output"],
                     )
                 )
                 continue

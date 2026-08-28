@@ -42,6 +42,19 @@ def render_synthesis(state: TaskState) -> str:
     return "\n\n".join(blocks)
 
 
+MIN_BODY_CHARS = 200
+SUBSTANTIAL_INPUT_CHARS = 400
+
+
+def degenerate(deliverable: Deliverable, state: TaskState) -> bool:
+    """A placeholder body ("final", "see above") when the accepted results carried real content."""
+    inputs = sum(
+        len(str((v.get("output") if isinstance(v, dict) else getattr(v, "output", "")) or ""))
+        for v in (state.get("subtask_results") or {}).values()
+    )
+    return inputs >= SUBSTANTIAL_INPUT_CHARS and len(deliverable.body.strip()) < MIN_BODY_CHARS
+
+
 def make_synthesize_node(deps: GraphDeps):  # type: ignore[no-untyped-def]
     async def synthesize(state: TaskState) -> dict[str, Any]:
         costs: list[CostEntry] = []
@@ -49,14 +62,37 @@ def make_synthesize_node(deps: GraphDeps):  # type: ignore[no-untyped-def]
         messages = [system_message(deps.synthesize_prompt), user_message(render_synthesis(state))]
         with span("node.synthesize", task_id=state["task_id"]) as s:
             try:
-                resp = await llm.chat(
-                    messages,
-                    response_schema=Deliverable.model_json_schema(),
-                    schema_name="Deliverable",
-                    max_tokens=6000,
-                    timeout_s=deps.config.llm_timeout_s,
-                )
-                deliverable = Deliverable.model_validate(extract_json(resp.content))
+                deliverable: Deliverable | None = None
+                for attempt in range(2):
+                    resp = await llm.chat(
+                        messages,
+                        response_schema=Deliverable.model_json_schema(),
+                        schema_name="Deliverable",
+                        max_tokens=6000,
+                        timeout_s=deps.config.llm_timeout_s,
+                    )
+                    candidate = Deliverable.model_validate(extract_json(resp.content))
+                    if not degenerate(candidate, state):
+                        deliverable = candidate
+                        break
+                    log.warning(
+                        "synthesize.degenerate",
+                        task_id=state["task_id"],
+                        attempt=attempt + 1,
+                        body_chars=len(candidate.body.strip()),
+                    )
+                    messages = [
+                        *messages,
+                        {"role": "assistant", "content": resp.content or ""},
+                        user_message(
+                            "That deliverable has no body. Write the COMPLETE deliverable in the "
+                            "`body` field: every result above, in full, in Markdown, citing sources."
+                        ),
+                    ]
+                if deliverable is None:
+                    raise SchemaValidationError(
+                        "the deliverable body was empty twice — refusing to deliver a placeholder"
+                    )
             except (RetryableError, SchemaValidationError, ValidationError) as e:
                 s.set_attribute("error", str(e)[:500])
                 log.error("synthesize.failed", task_id=state["task_id"], error=str(e)[:300])

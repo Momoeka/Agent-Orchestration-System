@@ -172,6 +172,9 @@ class Scenario:
         crash_reviewer_once: bool = False,
         email_subtasks: tuple[str, ...] = (),
         long_term: Any = None,
+        empty_first_attempt: tuple[str, ...] = (),
+        short_synthesis: int = 0,
+        pad_outputs: int = 0,
     ) -> None:
         self.calls: list[dict[str, Any]] = []
         self.plan = plan or PLAN_ABC
@@ -184,6 +187,9 @@ class Scenario:
             tuple[str, str, int]
         ] = []  # (agent, subtask_id, attempt) — one per loop start
         self.notified: list[int] = []
+        self.empty_first_attempt = set(empty_first_attempt)
+        self.short_synthesis = short_synthesis  # how many times synthesis returns a placeholder
+        self.pad_outputs = pad_outputs  # extra characters per specialist output (realistic sizes)
 
         tmp_path.mkdir(parents=True, exist_ok=True)
         engine = make_engine(f"sqlite:///{tmp_path / 'store.db'}")
@@ -220,7 +226,10 @@ class Scenario:
         if schema_name == "ExecutionPlan":
             return json.dumps(self.plan)
         assert schema_name == "Deliverable"
-        body = messages[-1]["content"]
+        if self.short_synthesis > 0:
+            self.short_synthesis -= 1
+            return json.dumps({"title": "Final", "body": "final", "sources": [], "confidence": 0.5})
+        body = messages[1]["content"]  # the synthesis prompt (a retry nudge may come after it)
         return json.dumps(
             {"title": "Final", "body": body[-600:], "sources": ["loans"], "confidence": 0.8}
         )
@@ -258,6 +267,10 @@ class Scenario:
         output = f"out {sid} ({pred})" + (
             f" email:{last_tool[:80]}" if sid in self.email_subtasks else ""
         )
+        if self.pad_outputs:
+            output += " " + "detail " * (self.pad_outputs // 7)
+        if sid in self.empty_first_attempt and attempt == 1:
+            output = ""  # a completed result with no content (seen live: reviewer accepted it)
         return [
             ToolCall(
                 id=f"sub-{sid}-{attempt}-{turns}",

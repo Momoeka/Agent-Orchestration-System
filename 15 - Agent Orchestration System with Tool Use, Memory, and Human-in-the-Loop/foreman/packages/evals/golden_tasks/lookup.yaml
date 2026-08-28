@@ -4,8 +4,8 @@
   difficulty: easy
   title: Loans on CLM-4471
   request: >-
-    List the loans on claim CLM-4471 with principal, APR, start date, missed payments and
-    rollover count for each.
+    List the loans on claim CLM-4471 — for each loan give the loan id, principal, APR, start date,
+    missed payments and rollover count — and name the client and the lender.
   expected_tools: [db_query]
   max_subtasks: 2
   must_contain: ["CLM-4471", "Silverpath"]
