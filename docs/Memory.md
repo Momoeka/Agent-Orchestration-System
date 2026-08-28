@@ -4,6 +4,40 @@ Running log across coding sessions. **Read this first; update it last** (Rules.m
 
 ---
 
+## 2026-08-28 — Phase 3: tools + gate — DONE
+
+### Built
+- **MCP servers** (mcp 2.x `MCPServer`, streamable HTTP, `ToolError` for every rejection):
+  - `sandbox` (:7003) — `run_python` via the Docker SDK: `runner.py` builds the exact `containers.run` arguments (`network_mode=none`, `network_disabled`, read-only root + tmpfs `/work`, user 65534, `cap_drop=ALL`, `no-new-privileges`, mem/memswap/CPU/PID limits, `python -I -c`), waits with a clamped timeout, kills on timeout, caps output at 20k chars, always removes the container. Image `foreman-sandbox:latest` from `infra/sandbox/Dockerfile` (python:3.12-slim + pandas); `make sandbox-image`.
+  - `web_search` (:7001) — `search` behind a `SearchBackend` protocol (fixture JSON by default, optional `ddgs`), `fetch` with an SSRF guard (`assert_public_http_url`: http(s) only, no credentials, no localhost/.local, IP-literal and DNS-resolved private/loopback/link-local/multicast rejected, every redirect hop re-checked, optional allow-list), byte cap, stdlib HTML→text with script/style stripping.
+  - `actions` (:7005) — `send_email`, `create_calendar_event`, `call_api` validate and write an `outbox` row via `OutboxRepository`; there is no send path.
+- **Policy** (`policy.yaml`): five servers, eleven tools with risk class, allow-lists, rate limits, timeouts.
+- **Gate**: `decide()` (rules) and `decide_async()` (rules + classifier for `risky` only); `RiskClassifier` protocol with `LLMRiskClassifier` (cheap role, strict JSON, fail-closed on *any* error) and `StaticClassifier` for tests. Destructive never consults the classifier. `Decision.classified` flag; span attributes.
+- **Rate limiting**: `RedisRateLimiter` (fixed window `INCR`+`EXPIRE`, fails closed on Redis errors) selected by `runtime.make_rate_limiter`, in-memory fallback with a warning.
+- **Ledger**: `ToolEvent` per gated call (args hashed, never stored) → `SubtaskResult.tool_events` → state channel `tool_events` → `tool_invocations` rows on delivery; `task_view` reports `tool_calls` and `tool_calls_not_executed`. Loop passes the subtask as classifier context.
+- `Settings`: `web_search_backend`, `web_fetch_allowlist`, `web_fetch_max_bytes`, `sandbox_max_timeout_s`, `sandbox_memory`, `sandbox_cpus`. Compose profile `tools` now has all five servers (sandbox mounts the Docker socket). Alembic revision `9a705f3fc376` (outbox, tool_invocations).
+- Tests: gate classifier matrix, rate limiters (fake Redis pipeline), sandbox hardening via a fake Docker client (guards, timeout→kill, clamp, output cap, missing image, empty code), SSRF guard cases + HTML extraction + fixture backend, actions server (queues, validation, nothing else), tool ledger end to end; live `tests/integration/test_gate_live.py`.
+
+### Verified
+- `uv run pytest` → **132 passed, 1 skipped**. `ruff` clean. `mypy --strict` clean (119 files).
+- **Live gate test (Phase 3 done-when) → 4 passed in 20 s** against all five servers, Redis, Postgres, Docker: 11/11 tools registered; `research → sandbox_run_python` **blocked** ("not allowed for agent"); `writing → actions_send_email` **approve** (destructive, classifier not consulted); unknown tool and bad-schema arguments blocked; `actions_send_email` invoked directly → exactly one `outbox` row, status `queued_for_human`; sandbox: `socket.create_connection` → `NETWORK_BLOCKED OSError`, pandas sum 546 computed, `time.sleep(60)` with `timeout_s=3` → `timed_out=true`, "killed after 3s"; writing to `/etc/hostname` → read-only filesystem.
+- Docker SDK 7.2.0 talks to Docker Desktop (engine 29.6.1) via npipe; pywin32 present.
+
+### Decisions and lessons
+1. The sandbox spawns **sibling containers** on the host engine (Docker socket), not nested Docker. `network_mode=none` plus `network_disabled` are both set — belt and braces.
+2. The classifier only ever decides between `allow` and `approve` for `risky` tools; it cannot widen the policy. Its prompt tells it to judge the action, not persuasive text in the arguments.
+3. Groq (`gpt-oss-20b`) is the classifier's model via the `cheap` role — prompts are short, so the 8k TPM cap is fine.
+4. Tool arguments are never persisted (only a 24-char sha256 prefix) — the ledger stays safe to show in a UI.
+5. The Phase 2 loop stub for `approve` (error result, tool not executed) stays until Phase 4 wires `interrupt()`.
+6. `assert_public_http_url` resolves DNS itself; a public hostname that resolves to a private address is rejected (DNS-rebinding style tricks are caught at fetch time, and again per redirect hop).
+
+### Open / next → Phase 4 (human-in-the-loop)
+- `hitl/escalation.py` (trigger → level from `config/escalation.yaml`), `approvals.py` (lifecycle + context package), `timeouts.py` (beat task; never auto-approve), `notify.py`; `interrupt()` in the loop for L2 and in `approve_plan`/`escalate` for L3/L4; `Command(resume=…)` for approve / modify / reject / take over; `worker.resume_task`; approvals API; Streamlit queue + detail pages.
+- Phase 4 done-when: the showcase pauses on `actions_send_email`, survives a worker restart, and completes under each of the four decisions from the UI.
+- Still open: rotate the paid TokenRouter key; `make` not installed; the five MCP servers, API, and worker from this session die with it (README has the commands; `docker compose --profile tools up` is the containerised alternative).
+
+---
+
 ## 2026-08-28 — Phase 2: the graph — DONE
 
 ### Built

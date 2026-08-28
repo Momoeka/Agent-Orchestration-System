@@ -44,6 +44,18 @@ mcp-db:          ## run the database MCP server locally on :7004
 mcp-files:       ## run the files MCP server locally on :7002
 	MCP_PORT=7002 uv run python -m packages.tools.mcp_servers.files
 
+mcp-web:         ## run the web MCP server locally on :7001 (fixture backend by default)
+	MCP_PORT=7001 uv run python -m packages.tools.mcp_servers.web_search
+
+mcp-sandbox:     ## run the sandbox MCP server locally on :7003 (needs Docker + the sandbox image)
+	MCP_PORT=7003 uv run python -m packages.tools.mcp_servers.sandbox
+
+mcp-actions:     ## run the actions MCP server locally on :7005 (writes to the outbox table only)
+	MCP_PORT=7005 uv run python -m packages.tools.mcp_servers.actions
+
+sandbox-image:   ## build the image sandbox_run_python executes in
+	docker build -f infra/sandbox/Dockerfile -t foreman-sandbox:latest infra/sandbox
+
 run-subtask:     ## run the research agent on one subtask: make run-subtask T="..."
 	uv run scripts/run_subtask.py "$(T)"
 

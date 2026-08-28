@@ -33,6 +33,7 @@ def make_specialist_node(agent: AgentSpec, deps: GraphDeps):  # type: ignore[no-
         return {
             "subtask_results": {subtask.id: result},
             "cost_ledger": result.cost_entries,
+            "tool_events": result.tool_events,
             "events": [
                 event(
                     "subtask_done",

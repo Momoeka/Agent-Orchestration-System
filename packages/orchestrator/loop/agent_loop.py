@@ -3,14 +3,15 @@
     build context → LLM → tool calls? → gate → registry → results appended → LLM … → submit_result
 
 The model finishes by calling the ``submit_result`` tool, whose arguments are validated as
-``SubmittedResult``. Every other tool call goes through ``Gate.decide`` and only then
+``SubmittedResult``. Every other tool call goes through ``Gate.decide_async`` and only then
 ``ToolRegistry.invoke``. All parallel results are appended before the next model call. Guards:
-iterations, tokens, cost, wall-clock (``Budget``).
+iterations, tokens, cost, wall-clock (``Budget``). Every gated call is recorded as a ``ToolEvent``.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from dataclasses import dataclass, field
 from typing import Any
@@ -33,7 +34,7 @@ from packages.orchestrator.loop.messages import (
 from packages.orchestrator.tracing.otel import span, tool_span
 from packages.shared.errors import BudgetExceededError, RetryableError
 from packages.shared.types.cost import CostEntry
-from packages.shared.types.gate import GateAction
+from packages.shared.types.gate import GateAction, ToolEvent
 from packages.shared.types.llm import LLMMessage
 from packages.shared.types.subtask import SubmittedResult, Subtask, SubtaskResult, SubtaskStatus
 from packages.shared.types.tools import ToolCall, ToolResult
@@ -61,6 +62,11 @@ def submit_tool_schema() -> dict[str, Any]:
     }
 
 
+def args_hash(arguments: dict[str, Any]) -> str:
+    canonical = json.dumps(arguments, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
+
+
 @dataclass
 class LoopDeps:
     llm: ChatLLM
@@ -75,6 +81,7 @@ async def run_agent_loop(
 ) -> SubtaskResult:
     tracker = BudgetTracker(deps.budget)
     cost_entries: list[CostEntry] = []
+    tool_events: list[ToolEvent] = []
     tools_used: list[str] = []
     nudges = 0
 
@@ -88,6 +95,7 @@ async def run_agent_loop(
         user_message(render_subtask(subtask)),
     ]
     tools = deps.registry.schemas_for(agent.name) + [submit_tool_schema()]
+    context = f"{subtask.id}: {subtask.description}"
 
     def finish(
         submitted: SubmittedResult, *, iterations: int, error: str | None = None
@@ -99,6 +107,7 @@ async def run_agent_loop(
             tools_used=sorted(set(tools_used)),
             iterations=iterations,
             cost_entries=cost_entries,
+            tool_events=tool_events,
             fallback_used=any(c.fallback for c in cost_entries),
             error=error,
         )
@@ -167,7 +176,10 @@ async def run_agent_loop(
                         other_calls.append(call)
 
                 executed = await asyncio.gather(
-                    *(_execute(agent, call, deps, tools_used) for call in other_calls)
+                    *(
+                        _execute(agent, subtask.id, call, deps, context, tools_used, tool_events)
+                        for call in other_calls
+                    )
                 )
                 results.extend(executed)
                 messages.extend(tool_messages(results))  # every result before the next model call
@@ -183,10 +195,26 @@ async def run_agent_loop(
 
 
 async def _execute(
-    agent: AgentSpec, call: ToolCall, deps: LoopDeps, tools_used: list[str]
+    agent: AgentSpec,
+    subtask_id: str,
+    call: ToolCall,
+    deps: LoopDeps,
+    context: str,
+    tools_used: list[str],
+    tool_events: list[ToolEvent],
 ) -> ToolResult:
-    decision = deps.gate.decide(agent.name, call)
+    decision = await deps.gate.decide_async(agent.name, call, context=context)
+    event = ToolEvent(
+        subtask_id=subtask_id,
+        agent=agent.name,
+        tool=call.name,
+        args_hash=args_hash(call.arguments),
+        risk=decision.risk,
+        decision=decision.action,
+        reason=decision.reason,
+    )
     if decision.action == GateAction.BLOCK:
+        tool_events.append(event)
         return ToolResult(
             tool_call_id=call.id,
             name=call.name,
@@ -195,6 +223,7 @@ async def _execute(
         )
     if decision.action == GateAction.APPROVE:
         # Phase 4 wires interrupt()/resume here. Until then the call does not run — fail closed.
+        tool_events.append(event)
         return ToolResult(
             tool_call_id=call.id,
             name=call.name,
@@ -207,10 +236,19 @@ async def _execute(
     spec = deps.registry.get(call.name)
     server = spec.server if spec else "unknown"
     with tool_span(server=server, tool=call.name, agent=agent.name) as s:
-        s.set_attribute("args", json.dumps(call.arguments, default=str)[:1000])
+        s.set_attribute("args_hash", event.args_hash)
         result = await deps.registry.invoke(call)
         s.set_attribute("ok", not result.is_error)
         s.set_attribute("result_size", len(result.content))
         s.set_attribute("latency_ms", result.latency_ms)
     tools_used.append(call.name)
+    tool_events.append(
+        event.model_copy(
+            update={
+                "ok": not result.is_error,
+                "latency_ms": result.latency_ms,
+                "result_size": len(result.content),
+            }
+        )
+    )
     return result

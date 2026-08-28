@@ -2,7 +2,7 @@
 
 from packages.shared.types.cost import CostEntry
 from packages.shared.types.deliverable import Deliverable
-from packages.shared.types.gate import Decision, GateAction
+from packages.shared.types.gate import Decision, GateAction, ToolEvent
 from packages.shared.types.llm import LLMResponse, Usage
 from packages.shared.types.plan import ExecutionPlan
 from packages.shared.types.review import ReviewJudgement, ReviewVerdict
@@ -37,6 +37,7 @@ __all__ = [
     "TaskOptions",
     "TaskStatus",
     "ToolCall",
+    "ToolEvent",
     "ToolResult",
     "ToolSpec",
     "Usage",

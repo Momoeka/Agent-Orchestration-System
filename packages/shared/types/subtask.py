@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
 
 from packages.shared.types.cost import CostEntry
+from packages.shared.types.gate import ToolEvent
 
 
 class Specialist(StrEnum):
@@ -73,6 +74,7 @@ class SubtaskResult(SubmittedResult):
     tools_used: list[str] = Field(default_factory=list)
     iterations: int = 0
     cost_entries: list[CostEntry] = Field(default_factory=list)
+    tool_events: list[ToolEvent] = Field(default_factory=list)
     fallback_used: bool = False
     error: str | None = None
 

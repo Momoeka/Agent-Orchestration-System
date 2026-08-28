@@ -58,6 +58,22 @@ curl -s http://localhost:8000/v1/tasks/<task_id> -H "X-API-Key: $API_KEY"   # pl
 
 Or in-process without Celery: `uv run scripts/run_task.py "<request>"`.
 
+## Phase 3 — the full tool layer and the gate
+
+```bash
+make sandbox-image                                                      # once: the image run_python executes in
+MCP_PORT=7001 uv run python -m packages.tools.mcp_servers.web_search      # search (fixture backend) + SSRF-guarded fetch
+MCP_PORT=7003 uv run python -m packages.tools.mcp_servers.sandbox         # run_python in a hardened throwaway container
+MCP_PORT=7005 uv run python -m packages.tools.mcp_servers.actions         # send_email / calendar / call_api -> outbox only
+uv run pytest -q -m integration tests/integration/test_gate_live.py       # the Phase 3 done-when, live
+```
+
+Every tool call goes through the gate before the registry may run it: unknown tool, wrong agent, bad
+arguments, or rate limit → **block**; `safe` → allow; `destructive` → **a human, always**; `risky` → a
+small LLM classifier decides whether a human needs to look, and any failure of that classifier means
+**approve**. Each decision is recorded in `tool_invocations` (arguments hashed, never stored). The
+actions server cannot send anything: its only effect is a row in `outbox`.
+
 The graph (docs/diagrams/02): intake → recall_memory → plan → dispatch → specialists (parallel `Send()` per ready subtask) → review → retry / dispatch dependents / synthesize → deliver → write_memory. State is checkpointed in Postgres after every node, so a worker that dies mid-task resumes from the last checkpoint on the next run (`tests/integration/test_graph_postgres_resume.py`).
 
 ## Principles

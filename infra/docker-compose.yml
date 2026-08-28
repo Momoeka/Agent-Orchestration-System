@@ -86,6 +86,40 @@ services:
       - ../data/workspace:/workspace
     ports: ["7002:7002"]
 
+  mcp-web:
+    profiles: ["tools"]
+    build: { context: .., dockerfile: infra/Dockerfile.mcp }
+    command: ["packages.tools.mcp_servers.web_search"]
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "7001"
+      WEB_SEARCH_BACKEND: fixture
+    ports: ["7001:7001"]
+
+  mcp-sandbox:
+    profiles: ["tools"]
+    build: { context: .., dockerfile: infra/Dockerfile.mcp }
+    command: ["packages.tools.mcp_servers.sandbox"]
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "7003"
+      SANDBOX_IMAGE: foreman-sandbox:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock   # spawns sibling containers on the host engine
+    ports: ["7003:7003"]
+
+  mcp-actions:
+    profiles: ["tools"]
+    build: { context: .., dockerfile: infra/Dockerfile.mcp }
+    command: ["packages.tools.mcp_servers.actions"]
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "7005"
+      DATABASE_URL: postgresql+psycopg://foreman:foreman@postgres:5432/foreman
+    ports: ["7005:7005"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
 volumes:
   pgdata:
   chromadata:

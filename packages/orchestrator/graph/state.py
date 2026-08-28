@@ -11,6 +11,7 @@ from typing import Annotated, Any, TypedDict
 
 from packages.shared.types.cost import CostEntry
 from packages.shared.types.deliverable import Deliverable
+from packages.shared.types.gate import ToolEvent
 from packages.shared.types.plan import ExecutionPlan
 from packages.shared.types.review import ReviewVerdict
 from packages.shared.types.subtask import Subtask, SubtaskResult
@@ -33,6 +34,7 @@ class TaskState(TypedDict, total=False):
     review_verdicts: Annotated[dict[str, ReviewVerdict], merge_dicts]
     retry_counts: Annotated[dict[str, int], merge_dicts]
     cost_ledger: Annotated[list[CostEntry], operator.add]
+    tool_events: Annotated[list[ToolEvent], operator.add]
     events: Annotated[list[TaskEvent], operator.add]
     final_output: Deliverable | None
     status: str
@@ -62,6 +64,7 @@ def initial_state(task_id: str, user_id: str, request: str, options: TaskOptions
         review_verdicts={},
         retry_counts={},
         cost_ledger=[],
+        tool_events=[],
         events=[],
         final_output=None,
         status="running",

@@ -10,6 +10,7 @@ from packages.orchestrator.graph.state import TaskState, event
 from packages.orchestrator.tracing.otel import span
 from packages.shared.types.cost import CostEntry
 from packages.shared.types.deliverable import Deliverable
+from packages.shared.types.gate import ToolEvent
 from packages.shared.types.review import ReviewVerdict
 from packages.shared.types.subtask import SubtaskResult
 from packages.shared.types.task import TaskStatus
@@ -21,6 +22,7 @@ def make_deliver_node(deps: GraphDeps):  # type: ignore[no-untyped-def]
         final = state.get("final_output")
         deliverable = Deliverable.model_validate(final) if final is not None else None
         ledger = [CostEntry.model_validate(c) for c in (state.get("cost_ledger") or [])]
+        tool_events = [ToolEvent.model_validate(t) for t in (state.get("tool_events") or [])]
         results = {
             k: SubtaskResult.model_validate(v)
             for k, v in (state.get("subtask_results") or {}).items()
@@ -45,18 +47,23 @@ def make_deliver_node(deps: GraphDeps):  # type: ignore[no-untyped-def]
                 results=results,
                 verdicts=verdicts,
                 cost_entries=ledger,
+                tool_events=tool_events,
                 events=list(state.get("events") or []),
             )
+        blocked = sum(1 for t in tool_events if t.decision.value != "allow")
         return {
             "status": status.value,
             "error": error,
             "events": [
                 event(
                     "delivered" if deliverable else "failed",
-                    f"task {status.value}; {len(ledger)} LLM calls",
+                    f"task {status.value}; {len(ledger)} LLM calls; {len(tool_events)} tool calls "
+                    f"({blocked} not executed)",
                     node="deliver",
                     cost_usd=cost_usd,
                     llm_calls=len(ledger),
+                    tool_calls=len(tool_events),
+                    tool_calls_not_executed=blocked,
                 )
             ],
         }

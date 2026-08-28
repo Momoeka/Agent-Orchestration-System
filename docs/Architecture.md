@@ -391,7 +391,9 @@ API_KEY=                        SLACK_WEBHOOK_URL=        LOG_LEVEL=INFO
 
 - **Gate is mandatory.** There is exactly one code path from an agent to a tool: `registry.invoke()` which is only reachable through `gate.decide()`. Tests assert this.
 - **Fail closed.** Unknown tool, missing policy, classifier error → block or approve, never allow.
-- **Least privilege.** DB user is SELECT-only; file tools confined to `WORKSPACE_ROOT` with canonical path checks; sandbox has no network and is discarded.
+- **Least privilege.** DB user is SELECT-only; file tools confined to `WORKSPACE_ROOT` with canonical path checks; the sandbox container runs with `network_mode=none`, a read-only root filesystem (tmpfs `/work`), all capabilities dropped, `no-new-privileges`, an unprivileged user, memory/CPU/PID limits, and is killed on timeout and always removed.
+- **No SSRF through the web tool.** `web_fetch` accepts only http(s) to hosts that resolve exclusively to public addresses — loopback, private, link-local, multicast and unspecified ranges are rejected, every redirect hop is re-checked, credentials in URLs are refused, and an optional hostname allow-list narrows it further. An agent can never be steered at Redis, Postgres, the metadata service, or another MCP server.
+- **The actions server has no send path.** `send_email`, `create_calendar_event` and `call_api` validate their inputs and write an `outbox` row; there is no code that transmits anything. Destructive tools are therefore doubly gated: human approval at the gate, and a human draining the outbox.
 - **Untrusted content.** Tool results are data. System prompts state this; results are typed and truncated; the injection suite is part of `make eval`.
 - **Secrets.** Only `apps/api/config/settings.py` and the worker's equivalent read the environment. No secret is logged; `args_hash` not raw args for sensitive tools.
 - **Audit.** Every approval decision, tool decision, and status change is an `audit_log` row with the actor.

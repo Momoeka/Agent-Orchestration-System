@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     mcp_host: str = "127.0.0.1"
     mcp_port: int | None = None
 
+    # --- tool servers: behaviour ---
+    web_search_backend: str = "fixture"  # fixture | ddg
+    web_fetch_allowlist: str = ""  # comma-separated hostnames; empty = any public host
+    web_fetch_max_bytes: int = 2_000_000
+    sandbox_max_timeout_s: int = 60
+    sandbox_memory: str = "512m"
+    sandbox_cpus: float = 1.0
+
     # --- policy ---
     plan_confidence_threshold: float = 0.6
     review_escalate_score: int = 3

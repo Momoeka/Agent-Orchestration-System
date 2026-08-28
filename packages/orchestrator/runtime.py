@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import structlog
+
 from packages.orchestrator.agents.catalog import build_specialists
 from packages.orchestrator.agents.reviewer.agent import build_reviewer_agent
 from packages.orchestrator.agents.supervisor.agent import build_supervisor_agent, synthesize_prompt
+from packages.orchestrator.gate.classifier import LLMRiskClassifier
 from packages.orchestrator.gate.decide import Gate
 from packages.orchestrator.graph.deps import GraphConfig, GraphDeps
 from packages.orchestrator.llm.chains import ChainedLLM
@@ -15,7 +18,23 @@ from packages.orchestrator.loop.budgets import Budget
 from packages.orchestrator.memory.db import make_engine, make_session_factory
 from packages.orchestrator.memory.persistent import TaskStore
 from packages.shared.config import Settings
+from packages.tools.registry.ratelimit import RateLimiter, RateLimiterLike, RedisRateLimiter
 from packages.tools.registry.registry import ToolRegistry
+
+log = structlog.get_logger(__name__)
+
+
+def make_rate_limiter(settings: Settings) -> RateLimiterLike:
+    """Redis-backed so every worker shares one budget; in-memory if Redis is unreachable."""
+    try:
+        import redis
+
+        client = redis.Redis.from_url(settings.redis_url, socket_connect_timeout=2)
+        client.ping()
+        return RedisRateLimiter(client)
+    except Exception as e:  # noqa: BLE001 — degrade to a per-process limiter, loudly
+        log.warning("ratelimit.redis_unavailable", error=str(e)[:120])
+        return RateLimiter()
 
 
 def make_store(settings: Settings) -> TaskStore:
@@ -41,10 +60,16 @@ def make_llm_factory(settings: Settings):  # type: ignore[no-untyped-def]
 
 async def build_runtime(settings: Settings, *, store: TaskStore | None = None) -> GraphDeps:
     registry = await ToolRegistry.discover(settings)
+    llm_for = make_llm_factory(settings)
+    gate = Gate(
+        registry,
+        make_rate_limiter(settings),
+        classifier=LLMRiskClassifier(llm_for("cheap")),
+    )
     return GraphDeps(
-        llm_for=make_llm_factory(settings),
+        llm_for=llm_for,
         registry=registry,
-        gate=Gate(registry),
+        gate=gate,
         store=store or make_store(settings),
         specialists=build_specialists(),
         supervisor=build_supervisor_agent(),

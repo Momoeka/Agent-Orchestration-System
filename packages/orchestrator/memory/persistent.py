@@ -15,6 +15,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from packages.orchestrator.memory.db import Base
 from packages.shared.types.cost import CostEntry
 from packages.shared.types.deliverable import Deliverable
+from packages.shared.types.gate import ToolEvent
 from packages.shared.types.plan import ExecutionPlan
 from packages.shared.types.review import ReviewVerdict
 from packages.shared.types.subtask import SubtaskResult
@@ -77,6 +78,37 @@ class LLMCallRow(Base):
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     fallback: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class ToolInvocationRow(Base):
+    __tablename__ = "tool_invocations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("tasks.id"), index=True)
+    subtask_id: Mapped[str] = mapped_column(String(16))
+    agent: Mapped[str] = mapped_column(String(32))
+    tool: Mapped[str] = mapped_column(String(64), index=True)
+    args_hash: Mapped[str] = mapped_column(String(32))
+    risk: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    decision: Mapped[str] = mapped_column(String(16), index=True)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    result_size: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class OutboxRow(Base):
+    """External actions the agents *proposed*. Nothing here is ever sent by Foreman (PRD.md §4)."""
+
+    __tablename__ = "outbox"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(32), index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(32), default="queued_for_human")
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
@@ -169,6 +201,7 @@ class TaskStore:
         verdicts: dict[str, ReviewVerdict],
         cost_entries: list[CostEntry],
         events: list[TaskEvent],
+        tool_events: list[ToolEvent] | None = None,
     ) -> None:
         with self._sessions() as s:
             row = s.get(TaskRow, task_id)
@@ -194,9 +227,12 @@ class TaskStore:
                 existing.attempt = result.attempt
                 existing.result = _json(result)
                 existing.verdict = _json(verdict)
+                accepted = (
+                    verdict is not None and verdict.accept and verdict.attempt == result.attempt
+                )
                 existing.status = (
                     "accepted"
-                    if verdict is not None and verdict.accept and verdict.attempt == result.attempt
+                    if accepted
                     else "rejected"
                     if verdict is not None
                     else result.status.value
@@ -213,6 +249,22 @@ class TaskStore:
                         cost_usd=c.cost_usd,
                         latency_ms=c.latency_ms,
                         fallback=c.fallback,
+                    )
+                )
+            for t in tool_events or []:
+                s.add(
+                    ToolInvocationRow(
+                        task_id=task_id,
+                        subtask_id=t.subtask_id,
+                        agent=t.agent,
+                        tool=t.tool,
+                        args_hash=t.args_hash,
+                        risk=t.risk.value if t.risk else None,
+                        decision=t.decision.value,
+                        reason=t.reason[:2000],
+                        ok=t.ok,
+                        latency_ms=t.latency_ms,
+                        result_size=t.result_size,
                     )
                 )
             for e in events:
@@ -243,6 +295,9 @@ class TaskStore:
                 return None
             subs = s.scalars(select(SubtaskRow).where(SubtaskRow.task_id == task_id)).all()
             calls = s.scalars(select(LLMCallRow).where(LLMCallRow.task_id == task_id)).all()
+            tools = s.scalars(
+                select(ToolInvocationRow).where(ToolInvocationRow.task_id == task_id)
+            ).all()
             return {
                 "task_id": row.id,
                 "user_id": row.user_id,
@@ -264,7 +319,39 @@ class TaskStore:
                 "cost_usd": row.cost_usd,
                 "llm_calls": len(calls),
                 "tokens": sum(c.input_tokens + c.output_tokens for c in calls),
+                "tool_calls": len(tools),
+                "tool_calls_not_executed": sum(1 for t in tools if t.decision != "allow"),
                 "error": row.error,
                 "created_at": row.created_at.isoformat() if row.created_at else None,
                 "updated_at": row.updated_at.isoformat() if row.updated_at else None,
             }
+
+
+class OutboxRepository:
+    """Written by the actions MCP server. Read by humans (Phase 4 UI). Never drained automatically."""
+
+    def __init__(self, session_factory: Callable[[], Session]) -> None:
+        self._sessions = session_factory
+
+    def add(self, kind: str, payload: dict[str, Any], *, task_id: str | None = None) -> int:
+        with self._sessions() as s:
+            row = OutboxRow(kind=kind, payload=payload, task_id=task_id)
+            s.add(row)
+            s.commit()
+            s.refresh(row)
+            return int(row.id)
+
+    def list(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        with self._sessions() as s:
+            rows = s.scalars(select(OutboxRow).order_by(OutboxRow.id.desc()).limit(limit)).all()
+            return [
+                {
+                    "id": r.id,
+                    "task_id": r.task_id,
+                    "kind": r.kind,
+                    "payload": r.payload,
+                    "status": r.status,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in rows
+            ]
