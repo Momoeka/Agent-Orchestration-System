@@ -171,6 +171,7 @@ class Scenario:
         reviewer_script: Callable[[str, int], dict[str, Any]] | None = None,
         crash_reviewer_once: bool = False,
         email_subtasks: tuple[str, ...] = (),
+        long_term: Any = None,
     ) -> None:
         self.calls: list[dict[str, Any]] = []
         self.plan = plan or PLAN_ABC
@@ -206,6 +207,7 @@ class Scenario:
             reviewer=AgentSpec(name="reviewer", role="reviewer", system_prompt="review"),
             policy=EscalationPolicy.default(),
             notifier=self._notify,
+            long_term=long_term,
             config=GraphConfig(plan_confidence_threshold=0.6, max_retries=2),
         )
 
@@ -286,11 +288,33 @@ class Scenario:
         )
         return json.dumps(self.reviewer_script(payload["subtask_id"], payload["attempt"]))
 
+    def _extractor(self, messages: list[dict[str, Any]], schema_name: str) -> str:
+        assert schema_name == "MemoryExtraction"
+        digest = messages[-1]["content"]
+        request = (
+            digest.split("request: ", 1)[1].split("\n", 1)[0] if "request: " in digest else "task"
+        )
+        return json.dumps(
+            {
+                "records": [
+                    {
+                        "text": f"Lesson from: {request[:60]}",
+                        "task_type": "claim_review",
+                        "outcome": "success",
+                        "importance": 3,
+                        "tools_used": [],
+                    }
+                ]
+            }
+        )
+
     def llm_for(self, role: str) -> FakeChain:
         if role == "supervisor":
             return FakeChain(role, self._supervisor, self.calls)
         if role == "reviewer":
             return FakeChain(role, self._reviewer, self.calls)
+        if role == "cheap":
+            return FakeChain(role, self._extractor, self.calls)
         return FakeChain(role, self._dispatch_specialist, self.calls)
 
     # ---- running ----

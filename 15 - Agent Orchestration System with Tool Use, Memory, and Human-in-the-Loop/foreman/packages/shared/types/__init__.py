@@ -13,6 +13,13 @@ from packages.shared.types.cost import CostEntry
 from packages.shared.types.deliverable import Deliverable
 from packages.shared.types.gate import Decision, GateAction, ToolEvent
 from packages.shared.types.llm import LLMResponse, Usage
+from packages.shared.types.memory import (
+    MemoryExtraction,
+    MemoryOutcome,
+    MemoryRecord,
+    RecalledMemory,
+    StoredMemory,
+)
 from packages.shared.types.plan import ExecutionPlan
 from packages.shared.types.review import ReviewJudgement, ReviewVerdict
 from packages.shared.types.subtask import (
@@ -41,6 +48,11 @@ __all__ = [
     "ExecutionPlan",
     "GateAction",
     "LLMResponse",
+    "MemoryExtraction",
+    "MemoryOutcome",
+    "MemoryRecord",
+    "RecalledMemory",
+    "StoredMemory",
     "ReviewJudgement",
     "ReviewVerdict",
     "RiskClass",

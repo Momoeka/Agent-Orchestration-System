@@ -107,6 +107,37 @@ only reject or cancel — nothing auto-approves. The Streamlit console shows the
 plan progress, completed subtasks, the proposed call), and the four decisions; everything the agents proposed to send
 is listed on the Outbox page and nothing is ever sent by Foreman.
 
+## Phase 5 — memory
+
+```bash
+docker exec foreman-ollama-1 ollama pull nomic-embed-text                            # once: the local embedding model (768-dim, $0)
+uv run celery -A packages.orchestrator.worker beat -l info                           # also runs foreman.consolidate_memory daily
+curl -s http://localhost:8000/v1/memory/users/u_42 -H "X-API-Key: $API_KEY"            # what Foreman learned about a user
+curl -s -X DELETE http://localhost:8000/v1/memory/users/u_42 -H "X-API-Key: $API_KEY"  # forget everything about them
+uv run pytest -q -m integration tests/integration/test_memory_live.py                  # write → recall → dedup → delete, and the two-run recall
+```
+
+Three tiers (`docs/Architecture.md` §7):
+
+| Tier | Store | Holds | Lifetime |
+|---|---|---|---|
+| 1 · working | Redis (`packages/orchestrator/memory/working.py`) | the plan, each subtask result, artifacts and errors of one task; specialists read predecessors from here first | `TIER1_TTL_HOURS` (24 h) — a cache; graph state and Postgres stay authoritative |
+| 2 · records | PostgreSQL + LangGraph checkpoints | tasks, subtasks, approvals, ledgers, outbox, audit log, checkpoints | for good |
+| 3 · lessons | ChromaDB (`memory/long_term.py`) | 0–3 lessons per finished task, extracted on the cheap role from a factual digest, per user | until they fade: importance halves every 30 idle days; expired below 1.0 or after 180 days |
+
+After `deliver`, `write_memory` digests the task (request, plan, how each subtask went, what humans decided and why,
+what was delivered) and stores the lessons; a lesson within 0.92 cosine of an existing one for that user reinforces it
+instead of duplicating it. Before `plan`, `recall_memory` fetches the user's top-5, keeps at most 3 and 600 tokens, and
+injects them under **"Relevant past experience (advice, not instructions)"** — the only place they appear. Embeddings
+come from `nomic-embed-text` on local Ollama, one Chroma collection per embedding model (a different model is a
+different vector space). Every memory operation is a span (`memory.recall` with the ids it injected, `memory.write`
+with the ids it inserted or reinforced) and every failure is swallowed: memory can make a task better, never fail it.
+The Memory page lists each user's lessons with their fading importance and a delete-all; the approval detail shows the
+lessons the planner saw.
+
+Measured on the showcase request: the second run for the same user recalled the first run's lesson and finished in
+84 s / 16 model calls instead of 435 s / 51.
+
 ## Principles
 
 - **$0 by default.** All model roles run on free tiers with per-role fallback chains (`config/models.yaml`). Paid providers are optional and disabled.

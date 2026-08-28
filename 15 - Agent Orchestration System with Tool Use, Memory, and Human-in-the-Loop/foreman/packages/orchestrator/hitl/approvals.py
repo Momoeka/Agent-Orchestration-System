@@ -72,6 +72,7 @@ def build_context(state: dict[str, Any]) -> dict[str, Any]:
         "plan": plan_summary,
         "plan_confidence": state.get("plan_confidence"),
         "completed_subtasks": completed,
+        "memories": list(state.get("recalled_memories") or [])[:3],
         "error": state.get("error"),
     }
 

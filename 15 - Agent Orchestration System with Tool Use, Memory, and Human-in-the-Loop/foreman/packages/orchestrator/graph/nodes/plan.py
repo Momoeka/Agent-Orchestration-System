@@ -64,6 +64,7 @@ def make_plan_node(deps: GraphDeps):  # type: ignore[no-untyped-def]
             s.set_attribute("confidence", execution_plan.confidence)
             # Persist now (not only at delivery) so GET /v1/tasks/{id} shows the plan while running.
             await asyncio.to_thread(deps.store.set_plan, state["task_id"], execution_plan)
+            await deps.working.put_plan(state["task_id"], execution_plan)
             summary = ", ".join(
                 f"{t.id}:{t.specialist.value}"
                 + (f"←{','.join(t.depends_on)}" if t.depends_on else "")

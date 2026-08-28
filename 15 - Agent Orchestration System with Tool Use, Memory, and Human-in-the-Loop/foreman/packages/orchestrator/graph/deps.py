@@ -7,11 +7,14 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from packages.orchestrator.agents.base import AgentSpec
+from packages.orchestrator.agents.memory_extractor.agent import build_memory_extractor_agent
 from packages.orchestrator.gate.decide import Gate
 from packages.orchestrator.hitl.escalation import EscalationPolicy
 from packages.orchestrator.llm.client import ChatLLM
 from packages.orchestrator.loop.budgets import Budget
+from packages.orchestrator.memory.long_term import LongTermMemory
 from packages.orchestrator.memory.persistent import ApprovalStore, TaskStore
+from packages.orchestrator.memory.working import InMemoryWorkingMemory, WorkingMemory
 from packages.shared.types.approval import ApprovalRequest
 from packages.tools.registry.registry import ToolRegistry
 
@@ -25,6 +28,9 @@ class GraphConfig:
     max_retries: int = 2
     specialist_budget: Budget = field(default_factory=Budget)
     llm_timeout_s: float = 120.0
+    memory_recall_k: int = 5
+    memory_recall_keep: int = 3
+    memory_recall_max_tokens: int = 600
 
 
 @dataclass
@@ -41,3 +47,6 @@ class GraphDeps:
     policy: EscalationPolicy = field(default_factory=EscalationPolicy.default)
     notifier: Notifier | None = None
     config: GraphConfig = field(default_factory=GraphConfig)
+    memory_extractor: AgentSpec = field(default_factory=build_memory_extractor_agent)
+    working: WorkingMemory = field(default_factory=InMemoryWorkingMemory)
+    long_term: LongTermMemory | None = None  # None: recall is empty, nothing is written

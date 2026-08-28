@@ -73,6 +73,16 @@ class ForemanClient:
         r.raise_for_status()
         return dict(r.json())
 
+    def memories(self, user_id: str) -> list[dict[str, Any]]:
+        r = self._client.get(f"/v1/memory/users/{user_id}")
+        r.raise_for_status()
+        return list(r.json())
+
+    def delete_memories(self, user_id: str) -> dict[str, Any]:
+        r = self._client.delete(f"/v1/memory/users/{user_id}")
+        r.raise_for_status()
+        return dict(r.json())
+
     def outbox(self, limit: int = 100) -> list[dict[str, Any]]:
         r = self._client.get("/v1/outbox", params={"limit": limit})
         r.raise_for_status()

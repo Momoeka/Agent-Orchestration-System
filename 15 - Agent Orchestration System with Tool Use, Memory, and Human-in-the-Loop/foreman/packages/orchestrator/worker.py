@@ -21,7 +21,14 @@ from packages.orchestrator.graph.build_graph import build_graph
 from packages.orchestrator.graph.serde import checkpoint_serde
 from packages.orchestrator.graph.state import initial_state
 from packages.orchestrator.hitl.timeouts import expire_due
-from packages.orchestrator.runtime import build_runtime, make_approvals, make_policy, make_store
+from packages.orchestrator.memory.consolidate import consolidate
+from packages.orchestrator.runtime import (
+    build_runtime,
+    make_approvals,
+    make_long_term,
+    make_policy,
+    make_store,
+)
 from packages.orchestrator.tracing.otel import configure_tracing, span
 from packages.shared.asyncio_compat import use_selector_event_loop_on_windows
 from packages.shared.config import Settings, get_settings
@@ -42,12 +49,14 @@ celery_app.conf.update(
     task_acks_late=True,
     beat_schedule={
         "expire-approvals": {"task": "foreman.expire_approvals", "schedule": 60.0},
+        "consolidate-memory": {"task": "foreman.consolidate_memory", "schedule": 86400.0},
     },
 )
 
 TASK_NAME = "foreman.run_task"
 RESUME_TASK_NAME = "foreman.resume_task"
 EXPIRE_TASK_NAME = "foreman.expire_approvals"
+CONSOLIDATE_TASK_NAME = "foreman.consolidate_memory"
 
 
 def checkpointer_conninfo(database_url: str) -> str:
@@ -158,3 +167,17 @@ def expire_approvals(self: Any) -> list[tuple[str, int]]:
     for task_id, approval_id in expired:
         celery_app.send_task(RESUME_TASK_NAME, args=[task_id, approval_id])
     return expired
+
+
+@celery_app.task(name=CONSOLIDATE_TASK_NAME, bind=True, max_retries=0)  # type: ignore[untyped-decorator]
+def consolidate_memory(self: Any) -> dict[str, int]:
+    """Nightly: expire lessons that faded or aged out (never rewrites importance)."""
+    memory = make_long_term(_settings)
+    if memory is None:
+        return {"scanned": 0, "expired": 0, "fading": 0}
+    report = consolidate(
+        memory,
+        half_life_days=_settings.memory_half_life_days,
+        max_age_days=_settings.memory_max_age_days,
+    )
+    return {"scanned": report.scanned, "expired": report.expired, "fading": report.fading}

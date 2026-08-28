@@ -12,12 +12,14 @@ from fastapi import FastAPI
 from apps.api.config.settings import Settings, get_settings
 from apps.api.middleware.auth import ApiKeyMiddleware
 from apps.api.middleware.errors import install_error_handlers
-from apps.api.routes import approvals, tasks
+from apps.api.routes import approvals, memory, tasks
 from apps.api.services.approval_service import ApprovalService
+from apps.api.services.memory_service import MemoryService
 from apps.api.services.queue import CeleryQueue, TaskQueue
 from apps.api.services.task_service import TaskService
+from packages.orchestrator.memory.long_term import LongTermMemory
 from packages.orchestrator.memory.persistent import ApprovalStore, OutboxRepository, TaskStore
-from packages.orchestrator.runtime import make_approvals, make_outbox, make_store
+from packages.orchestrator.runtime import make_approvals, make_long_term, make_outbox, make_store
 from packages.orchestrator.tracing.otel import configure_tracing
 
 
@@ -28,6 +30,8 @@ def create_app(
     approvals_store: ApprovalStore | None = None,
     outbox: OutboxRepository | None = None,
     queue: TaskQueue | None = None,
+    long_term: LongTermMemory | None = None,
+    memory_enabled: bool = True,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_tracing(settings)
@@ -37,10 +41,18 @@ def create_app(
     app.state.task_service = TaskService(store or make_store(settings), queue)
     app.state.approval_service = ApprovalService(approvals_store or make_approvals(settings), queue)
     app.state.outbox = outbox or make_outbox(settings)
+    app.state.memory_service = MemoryService(
+        lambda: (
+            long_term
+            if long_term is not None
+            else (make_long_term(settings) if memory_enabled else None)
+        )
+    )
     app.add_middleware(ApiKeyMiddleware, api_key=settings.api_key)
     install_error_handlers(app)
     app.include_router(tasks.router)
     app.include_router(approvals.router)
+    app.include_router(memory.router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

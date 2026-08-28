@@ -221,7 +221,7 @@ Keys `task:{id}:plan`, `task:{id}:result:{subtask_id}`, `task:{id}:artifact:{nam
 | LangGraph checkpoint tables | managed by `PostgresSaver.setup()` |
 
 ### 7.3 Tier 3 — ChromaDB
-Collection `memories`. Document = lesson text. Metadata: `user_id, task_type, outcome, importance, created_at, last_accessed, access_count, tools_used`. Embeddings from the `embedding` role. Dedup threshold 0.92. Recall: filter by `user_id` (and optionally `task_type`), top-5, rerank (local cross-encoder or none in v1), keep ≤ 3 and ≤ 600 tokens.
+One collection **per embedding model** (`memories__<model>`, cosine space) — a different embedding model is a different vector space and never shares an index; the `embedding` chain only falls back to entries that serve the same model id. Document = lesson text. Metadata: `user_id, task_type, outcome, importance, created_at, last_accessed, access_count, tools_used, source_task_id`. Dedup at 0.92 cosine per user reinforces the existing record (importance +0.5, access +1) instead of inserting. Recall: filter by `user_id` (optionally `task_type`), top-5, no rerank in v1, keep ≤ 3 and ≤ 600 tokens, touch what was returned. Effective importance = stored × 0.5^(idle days / 30) is computed, never rewritten; the nightly consolidation expires records below 1.0 or older than 180 days. `GET/DELETE /v1/memory/users/{id}`.
 
 ## 8. Human-in-the-loop
 

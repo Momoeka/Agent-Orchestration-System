@@ -60,7 +60,7 @@ rows = c.approvals(status=None if show == "all" else show, limit=200)
 st.title("Approvals")
 if not rows:
     st.info(
-        "No pending approvals. A running task appears here the moment it pauses for a decision; watch its status on the Tasks page (auto-refresh is on there)."
+        "No pending approvals. A running task appears here when it pauses for a decision; watch the Tasks page."
     )
     st.stop()
 
@@ -119,6 +119,16 @@ with left:
             ):
                 st.write(r["output_preview"])
                 st.caption("sources: " + ", ".join(r.get("sources") or []))
+
+    if ctx.get("memories"):
+        st.subheader("Similar past experience")
+        for m in ctx["memories"][:3]:
+            st.markdown(
+                f"<div class='card card-memory'>{m.get('text', '')}<br><small>"
+                f"{m.get('task_type', '')} · {m.get('outcome', '')} · relevance {float(m.get('score', 0)):.2f}"
+                "</small></div>",
+                unsafe_allow_html=True,
+            )
 
     st.subheader("Decision point")
     action = detail.get("proposed_action") or {}

@@ -71,6 +71,15 @@ class Settings(BaseSettings):
     max_iterations: int = 15
     default_task_budget_usd: float = 1.00
     tier1_ttl_hours: int = 24
+    # --- tier 3 (Architecture.md 7.3) ---
+    memory_enabled: bool = True
+    memory_collection: str = "memories"
+    memory_dedup_threshold: float = 0.92
+    memory_recall_k: int = 5
+    memory_recall_keep: int = 3
+    memory_recall_max_tokens: int = 600
+    memory_half_life_days: float = 30.0
+    memory_max_age_days: int = 180
 
     # --- ops ---
     api_base_url: str = "http://localhost:8000"  # what the operator UI talks to

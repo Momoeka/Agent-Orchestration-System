@@ -30,6 +30,10 @@ class LLMClient(Protocol):
         timeout_s: float | None = None,
     ) -> LLMResponse: ...
 
+    async def embed(
+        self, texts: list[str], *, model: str, timeout_s: float | None = None
+    ) -> list[list[float]]: ...
+
 
 class ChatLLM(Protocol):
     role: str

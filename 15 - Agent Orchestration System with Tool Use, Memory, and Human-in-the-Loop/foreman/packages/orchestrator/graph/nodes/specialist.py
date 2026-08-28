@@ -17,7 +17,12 @@ def make_specialist_node(agent: AgentSpec, deps: GraphDeps):  # type: ignore[no-
         subtask = Subtask.model_validate(payload["subtask"])
         inputs = dict(subtask.inputs)
         if payload.get("predecessor_outputs"):
-            inputs["predecessor_outputs"] = payload["predecessor_outputs"]
+            # Tier 1 first (freshest, shared across workers); the Send payload is the fallback.
+            fresh = await deps.working.get_results(payload["task_id"])
+            inputs["predecessor_outputs"] = {
+                sid: (fresh[sid].output if sid in fresh else text)
+                for sid, text in payload["predecessor_outputs"].items()
+            }
         if payload.get("feedback"):
             inputs["reviewer_feedback"] = payload["feedback"]
         enriched = subtask.model_copy(update={"inputs": inputs})
@@ -64,6 +69,9 @@ def make_specialist_node(agent: AgentSpec, deps: GraphDeps):  # type: ignore[no-
                 ],
             }
 
+        await deps.working.put_result(payload["task_id"], outcome)
+        if outcome.error:
+            await deps.working.add_error(payload["task_id"], f"{subtask.id}: {outcome.error}")
         return {
             "subtask_results": {subtask.id: outcome},
             "cost_ledger": outcome.cost_entries,

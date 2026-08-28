@@ -173,6 +173,26 @@ class OpenAICompatProvider:
             raw_assistant_message=raw,
         )
 
+    async def embed(
+        self, texts: list[str], *, model: str, timeout_s: float | None = None
+    ) -> list[list[float]]:
+        label = f"{self.provider_id}/{model}"
+        kwargs: dict[str, Any] = {"model": model, "input": texts}
+        if timeout_s is not None:
+            kwargs["timeout"] = timeout_s
+        async with self._semaphore:
+            try:
+                resp = await self._client.embeddings.create(**kwargs)
+            except (APITimeoutError, APIConnectionError) as e:
+                raise RetryableError(f"{label}: {type(e).__name__}: {e}") from e
+            except RateLimitError as e:
+                raise RetryableError(f"{label}: rate limited: {e}") from e
+            except (AuthenticationError, PermissionDeniedError, NotFoundError) as e:
+                raise NonRetryableError(f"{label}: {type(e).__name__}: {e}") from e
+            except APIStatusError as e:
+                raise _map_status_error(e, label) from e
+        return [list(d.embedding) for d in sorted(resp.data, key=lambda d: d.index)]
+
     async def _create(self, kwargs: dict[str, Any], model: str, structured: bool) -> Any:
         label = f"{self.provider_id}/{model}"
         try:

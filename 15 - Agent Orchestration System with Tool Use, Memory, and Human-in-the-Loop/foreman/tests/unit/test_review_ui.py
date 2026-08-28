@@ -109,6 +109,22 @@ TASK: dict[str, Any] = {
     "tool_calls_not_executed": 0,
     "cost_usd": None,
 }
+MEMORIES = [
+    {
+        "id": "m1",
+        "user_id": "u_42",
+        "text": "This user rejects sending emails: drafts only.",
+        "task_type": "complaint_letter",
+        "outcome": "decision",
+        "importance": 5,
+        "effective_importance": 4.2,
+        "created_at": "2026-08-01T00:00:00+00:00",
+        "last_accessed": "2026-08-20T00:00:00+00:00",
+        "access_count": 3,
+        "tools_used": ["actions_send_email"],
+        "source_task_id": "t-1234567890",
+    }
+]
 OUTBOX = [
     {
         "id": 1,
@@ -181,6 +197,13 @@ class FakeClient:
     def outbox(self, limit: int = 100) -> list[dict[str, Any]]:
         return OUTBOX
 
+    def memories(self, user_id: str) -> list[dict[str, Any]]:
+        return list(MEMORIES) if user_id == "u_42" else []
+
+    def delete_memories(self, user_id: str) -> dict[str, Any]:
+        self.decisions.append({"deleted_for": user_id})
+        return {"user_id": user_id, "deleted": 1}
+
 
 @pytest.fixture(autouse=True)
 def fake_api(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -230,3 +253,14 @@ def test_tasks_page_renders_a_task() -> None:
 def test_outbox_page_lists_queued_mail() -> None:
     at = run("apps/review_ui/pages/3_Outbox.py")
     assert any("lender@example.test" in c.value for c in at.code)
+
+
+def test_memory_page_lists_and_deletes() -> None:
+    at = run("apps/review_ui/pages/4_Memory.py")
+    assert any("complaint_letter" in e.label for e in at.expander)
+    assert any("drafts only" in m.value for m in at.markdown)
+    at.checkbox(key="memory-confirm").check().run()
+    delete = next(b for b in at.button if "Delete all" in b.label)
+    delete.click().run()
+    assert not at.exception
+    assert {"deleted_for": "u_42"} in FakeClient.decisions

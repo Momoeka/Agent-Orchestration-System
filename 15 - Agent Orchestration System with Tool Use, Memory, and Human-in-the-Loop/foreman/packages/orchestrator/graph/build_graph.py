@@ -42,11 +42,11 @@ from packages.orchestrator.graph.nodes.dispatch import dispatch
 from packages.orchestrator.graph.nodes.escalate import make_escalate_node
 from packages.orchestrator.graph.nodes.intake import intake
 from packages.orchestrator.graph.nodes.plan import make_plan_node
-from packages.orchestrator.graph.nodes.recall_memory import recall_memory
+from packages.orchestrator.graph.nodes.recall_memory import make_recall_memory_node
 from packages.orchestrator.graph.nodes.review import make_review_node
 from packages.orchestrator.graph.nodes.specialist import make_specialist_node
 from packages.orchestrator.graph.nodes.synthesize import make_synthesize_node
-from packages.orchestrator.graph.nodes.write_memory import write_memory
+from packages.orchestrator.graph.nodes.write_memory import make_write_memory_node
 from packages.orchestrator.graph.state import TaskState
 
 
@@ -55,7 +55,7 @@ def build_graph(deps: GraphDeps, checkpointer: Any = None) -> CompiledStateGraph
     cfg = deps.config
 
     g.add_node("intake", intake)
-    g.add_node("recall_memory", recall_memory)
+    g.add_node("recall_memory", make_recall_memory_node(deps))
     g.add_node("plan", make_plan_node(deps))
     g.add_node(NODE_APPROVE_PLAN, make_approve_plan_node(deps))
     g.add_node(NODE_DISPATCH, dispatch)
@@ -69,7 +69,7 @@ def build_graph(deps: GraphDeps, checkpointer: Any = None) -> CompiledStateGraph
     g.add_node(NODE_SYNTHESIZE, make_synthesize_node(deps))
     g.add_node(NODE_ESCALATE, make_escalate_node(deps))
     g.add_node(NODE_DELIVER, make_deliver_node(deps))
-    g.add_node("write_memory", write_memory)
+    g.add_node("write_memory", make_write_memory_node(deps))
 
     g.add_edge(START, "intake")
     g.add_conditional_edges(

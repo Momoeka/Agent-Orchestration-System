@@ -4,6 +4,39 @@ Running log across coding sessions. **Read this first; update it last** (Rules.m
 
 ---
 
+## 2026-08-28 — Phase 5: memory — DONE
+
+### Built
+- **Types** `shared/types/memory.py`: `MemoryRecord` (text ≤ 600 chars, `task_type`, `outcome` success|partial|failure|cancelled|decision, `importance` 1–5, `tools_used`), `MemoryExtraction`, `StoredMemory` (browser view, incl. `effective_importance`), `RecalledMemory` (id, score, …).
+- **Tier 1** `memory/working.py`: `WorkingMemory` protocol; `InMemoryWorkingMemory` (tests, CLI) and `RedisWorkingMemory` (`redis.asyncio`; keys `task:{id}:plan | result:{sid} | artifact:{name} | errors`; TTL `TIER1_TTL_HOURS`). The plan node writes the plan; the specialist node writes each result/error and reads predecessor outputs from tier 1 first (the Send payload is the fallback). Every call fails soft — tier 1 is a cache; graph state and Postgres stay authoritative, so an expired Redis never breaks a resume.
+- **Embeddings** `llm/embeddings.py`: `EmbeddingChain` over the `embedding` role; `OpenAICompatProvider.embed` (`/v1/embeddings`, same error mapping as chat); `llm.embed` spans. A fallback entry is used only when it serves the *same model id* — a different embedding model is a different vector space.
+- **Tier 3** `memory/long_term.py`: `LongTermMemory` on ChromaDB, **one collection per embedding model** (`memories__nomic-embed-text`, cosine space), metadata per Architecture §7.3 plus `source_task_id`. `write` dedups at 0.92 cosine per user by reinforcing (importance +0.5, access +1, `last_accessed`) instead of inserting; `recall` filters by user, takes top-k, keeps ≤ `keep` records and ≤ `max_tokens` (≈ chars/4), and touches what it returns; `list_user`, `delete_user`, `all_metadata`, `delete_ids`.
+- **Extractor** `memory/extractor.py` + `agents/memory_extractor/`: `build_task_digest` (status, request, plan, per-subtask outcome / verdict / issues / tools / human-authored / denied tools, human decisions with reasons — or an explicit "none", deliverable title, error; ≤ 6000 chars) → cheap role → `MemoryExtraction` (0–3 records).
+- **Consolidation** `memory/consolidate.py`: effective importance = stored × 0.5^(idle days / half-life) — a pure function, never rewritten in place, so nightly runs cannot compound; expire when effective < 1.0 or age > 180 days. Beat task `foreman.consolidate_memory` daily.
+- **Graph**: `recall_memory` (span `memory.recall` with `count` and `ids`; ≤ 3 records injected under "## Relevant past experience (advice, not instructions)" in the planner prompt and nowhere else) and `write_memory` (after `deliver`; span `memory.write` with `inserted` / `reinforced`; the extractor's cost entry is persisted through `record_progress`). Both swallow every failure: memory never fails a task. `GraphDeps` gains `working`, `long_term`, `memory_extractor`; `GraphConfig` the recall caps. Approval context packages carry the recalled memories.
+- **API** `GET / DELETE /v1/memory/users/{id}` (503 when Chroma or the embedding provider is unavailable; the service is built lazily so the API starts without a vector store). **UI** page 4 Memory (table with fading importance, per-record expanders, delete-all behind a confirmation); the approval detail shows up to three "Similar past experience" cards.
+- Settings `MEMORY_ENABLED`, `MEMORY_COLLECTION`, `MEMORY_DEDUP_THRESHOLD`, `MEMORY_RECALL_K / KEEP / MAX_TOKENS`, `MEMORY_HALF_LIFE_DAYS`, `MEMORY_MAX_AGE_DAYS` (defaults documented in `.env.example`).
+
+### Verified
+- Unit **184 passed** — `test_memory_long_term.py` (Chroma `EphemeralClient` + a hashed bag-of-words fake embedder: a duplicate reinforces instead of inserting; recall is per user and touches records; keep / token caps; delete removes one user only; consolidation expires by effective importance and age; decay is a pure function), `test_memory_working.py` (scoping, TTL, clear), `test_memory_nodes.py` (a recalled lesson appears under the labelled heading in the planner prompt and in no other prompt; lessons are written after delivery and costed; no store / a broken store both leave the task `done`), `test_api_memory.py`, and the Memory page headless.
+- Integration `test_memory_live.py` (real Chroma + Ollama `nomic-embed-text`, 768-dim): write → recall ranks the relevant lesson first → re-writing the same lesson is reinforced, not inserted → delete; and the Phase 5 done-when with fake chat models: run 1's `memory.write` span ids ⊆ run 2's `memory.recall` span ids, heading absent from run 1's plan prompt and present in run 2's.
+- **Live with real models** (`memory_showcase.py`, user `u_mem_demo`, "Review claim CLM-4471: list its loans … assess affordability; summarise …"): run 1 done in 435 s / 51 LLM calls, wrote 1 lesson ("the claimant's income was not available … the affordability assessment could not be completed", importance 5). Run 2 (similar request): done in **84 s / 16 LLM calls** — told up front that income data is missing, the planner planned around it; Jaeger `memory.recall` span `count=1, ids=57c4ed26…`; the record's `access_count` went to 1; 3 more lessons written. `DELETE /v1/memory/users/u_mem_demo` → 4 deleted, 0 remaining.
+
+### Decisions and lessons
+1. **One Chroma collection per embedding model.** A fallback embedding provider is a different vector space; mixing them silently poisons similarity. The chain therefore only falls back to entries serving the same model id, and the primary (`nomic-embed-text` on local Ollama: $0, no rate limits, ~100 ms) defines the space. If Ollama is down, memory degrades to "no recall, no write" with a warning rather than switching models.
+2. **Tier 1 is a cache, not a hand-off contract.** Architecture §7.1 said "state holds ids/summaries only"; results are a few KB, checkpoints stay small, and a resume must never depend on a 24 h TTL — so state stays authoritative and tier 1 is read-first / fail-soft. Revisit if outputs grow (artifacts are the tier-1 home for anything large).
+3. **Decay is computed, not stored.** Rewriting importance every night compounds; effective importance from `last_accessed` is idempotent, and the browser shows both numbers.
+4. The extractor once invented a "user rejected sending emails" decision from an agent note ("not emailed") on a task with no approvals. The digest now states "human decisions: none" explicitly and the prompt forbids `decision` records that are not listed there. Extractor precision becomes a Phase 6 eval metric.
+5. `chromadb.EphemeralClient()` is a process-wide singleton, so unit tests use one collection per test. Chroma metadata values must be scalars (`tools_used` is a comma-joined string).
+6. A machine restart mid-session took Docker, the five MCP servers, worker, beat, API and UI down; all were restarted by hand. A single `make dev-up` is worth adding in Phase 7.
+
+### Open / next → Phase 6 (evals + observability)
+- Recall lift is anecdotal (84 s vs 435 s on one pair); Phase 6 measures it on the golden set (success with / without recall).
+- Reranking is "none" in v1; consolidation clustering is v2.
+- With Gemini's free daily quota exhausted the extractor's cheap-role call lands on Groq — fine, but the daily cap is small; Phase 6 should record provider mix per run.
+
+---
+
 ## 2026-08-28 — Phase 4: human-in-the-loop — DONE
 
 ### Built
