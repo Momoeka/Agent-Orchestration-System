@@ -37,8 +37,8 @@ def build_server(settings: Settings, outbox: OutboxRepository | None = None) -> 
     server = make_server("foreman-actions", instructions=INSTRUCTIONS)
     repo = outbox or OutboxRepository(make_session_factory(make_engine(settings.database_url)))
 
-    def _queue(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
-        outbox_id = repo.add(kind, payload)
+    def _queue(kind: str, payload: dict[str, Any], task_id: str = "") -> dict[str, Any]:
+        outbox_id = repo.add(kind, payload, task_id=task_id or None)
         return {
             "outbox_id": outbox_id,
             "kind": kind,
@@ -47,7 +47,7 @@ def build_server(settings: Settings, outbox: OutboxRepository | None = None) -> 
         }
 
     @server.tool()
-    def send_email(to: str, subject: str, body: str) -> dict[str, Any]:
+    def send_email(to: str, subject: str, body: str, task_id: str = "") -> dict[str, Any]:
         """Queue an email for a human to review and send. Nothing is sent by this tool.
 
         Call this only when the subtask explicitly asks for an email to be sent; otherwise return
@@ -59,11 +59,17 @@ def build_server(settings: Settings, outbox: OutboxRepository | None = None) -> 
             raise ToolError("subject is empty")
         if len(body) > MAX_BODY:
             raise ToolError(f"body exceeds {MAX_BODY} characters")
-        return _queue("email", {"to": to.strip(), "subject": subject.strip(), "body": body})
+        return _queue(
+            "email", {"to": to.strip(), "subject": subject.strip(), "body": body}, task_id
+        )
 
     @server.tool()
     def create_calendar_event(
-        title: str, start: str, end: str, attendees: list[str] | None = None
+        title: str,
+        start: str,
+        end: str,
+        attendees: list[str] | None = None,
+        task_id: str = "",
     ) -> dict[str, Any]:
         """Queue a calendar event for a human to create. Nothing is created by this tool.
 
@@ -85,10 +91,13 @@ def build_server(settings: Settings, outbox: OutboxRepository | None = None) -> 
                 "end": end_iso,
                 "attendees": attendees or [],
             },
+            task_id,
         )
 
     @server.tool()
-    def call_api(method: str, url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def call_api(
+        method: str, url: str, payload: dict[str, Any] | None = None, task_id: str = ""
+    ) -> dict[str, Any]:
         """Queue an outbound API call for a human to review. Nothing is called by this tool.
 
         Requires human approval.
@@ -99,7 +108,9 @@ def build_server(settings: Settings, outbox: OutboxRepository | None = None) -> 
         parts = urlsplit(url.strip())
         if parts.scheme not in {"http", "https"} or not parts.hostname:
             raise ToolError("url must be an absolute http(s) URL")
-        return _queue("api_call", {"method": method, "url": url.strip(), "payload": payload or {}})
+        return _queue(
+            "api_call", {"method": method, "url": url.strip(), "payload": payload or {}}, task_id
+        )
 
     return server
 

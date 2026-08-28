@@ -100,7 +100,7 @@ class RecordingRegistry(ToolRegistry):
         super().__init__(base._specs, {"actions": "http://actions"})
         self.invoked: list[ToolCall] = []
 
-    async def invoke(self, call: ToolCall) -> ToolResult:
+    async def invoke(self, call: ToolCall, **_: Any) -> ToolResult:
         self.invoked.append(call)
         return ToolResult(
             tool_call_id=call.id,

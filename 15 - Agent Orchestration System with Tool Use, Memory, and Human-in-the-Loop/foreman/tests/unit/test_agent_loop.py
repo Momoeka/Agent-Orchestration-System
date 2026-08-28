@@ -87,7 +87,7 @@ class RecordingRegistry(ToolRegistry):
         self._specs = real._specs
         self.invoked: list[ToolCall] = []
 
-    async def invoke(self, call: ToolCall) -> ToolResult:
+    async def invoke(self, call: ToolCall, **_: Any) -> ToolResult:
         self.invoked.append(call)
         return ToolResult(tool_call_id=call.id, name=call.name, content=f"result of {call.name}")
 

@@ -90,7 +90,9 @@ class Demo:
                     say(
                         f"    {s['id']} ({s['specialist']}) <- {','.join(s['depends_on']) or '-'}: {s['description'][:90]}"
                     )
-            if v["status"] in TERMINAL:
+            if v["status"] == "awaiting_approval" and self.pending_approval(task_id) is None:
+                pass  # a decision was just recorded; the worker has not resumed the task yet
+            elif v["status"] in TERMINAL:
                 return v
             time.sleep(8)
         raise SystemExit("gave up waiting for the task")

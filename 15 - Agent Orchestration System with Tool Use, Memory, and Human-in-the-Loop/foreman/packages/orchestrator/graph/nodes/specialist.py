@@ -36,6 +36,7 @@ def make_specialist_node(agent: AgentSpec, deps: GraphDeps):  # type: ignore[no-
             gate=deps.gate,
             budget=deps.config.budget_for(agent.name),
             llm_timeout_s=deps.config.llm_timeout_s,
+            task_id=payload["task_id"],
         )
         outcome = await run_agent_loop(
             agent,

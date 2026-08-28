@@ -128,6 +128,7 @@ class LoopDeps:
     gate: Gate
     budget: Budget = field(default_factory=Budget)
     llm_timeout_s: float = 90.0
+    task_id: str = ""  # threaded into tools that record it (the actions server's outbox)
 
 
 LoopOutcome = SubtaskResult | PausedLoop
@@ -481,7 +482,7 @@ class _Run:
         server = spec.server if spec else "unknown"
         with tool_span(server=server, tool=call.name, agent=self.agent.name) as s:
             s.set_attribute("args_hash", args_hash(call.arguments))
-            result = await self.deps.registry.invoke(call)
+            result = await self.deps.registry.invoke(call, task_id=self.deps.task_id)
             s.set_attribute("ok", not result.is_error)
             s.set_attribute("result_size", len(result.content))
             s.set_attribute("latency_ms", result.latency_ms)

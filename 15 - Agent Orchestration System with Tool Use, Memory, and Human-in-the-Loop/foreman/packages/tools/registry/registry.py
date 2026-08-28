@@ -29,6 +29,14 @@ def load_policy(path: Path) -> dict[str, Any]:
     return data
 
 
+def with_task_id(spec: ToolSpec, arguments: dict[str, Any], task_id: str | None) -> dict[str, Any]:
+    """Tools that declare a `task_id` input (the actions server) get the real task id, whatever
+    the model put there, so every outbox row names the task that proposed it."""
+    if not task_id or "task_id" not in (spec.input_schema.get("properties") or {}):
+        return arguments
+    return {**arguments, "task_id": task_id}
+
+
 class ToolRegistry:
     def __init__(self, specs: dict[str, ToolSpec], server_urls: dict[str, str]) -> None:
         self._specs = specs
@@ -104,7 +112,7 @@ class ToolRegistry:
 
     # ---------- invocation ----------
 
-    async def invoke(self, call: ToolCall) -> ToolResult:
+    async def invoke(self, call: ToolCall, *, task_id: str | None = None) -> ToolResult:
         spec = self._specs.get(call.name)
         if spec is None:
             return ToolResult(
@@ -114,7 +122,9 @@ class ToolRegistry:
         started = time.perf_counter()
         try:
             async with asyncio.timeout(spec.timeout_s):
-                content, is_error = await _call_tool(url, spec.mcp_name, call.arguments)
+                content, is_error = await _call_tool(
+                    url, spec.mcp_name, with_task_id(spec, call.arguments, task_id)
+                )
         except TimeoutError:
             content, is_error = f"tool timed out after {spec.timeout_s}s", True
         except Exception as e:  # noqa: BLE001 — surfaced to the model as an error result

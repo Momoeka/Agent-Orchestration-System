@@ -394,6 +394,8 @@ PLAN_CONFIDENCE_THRESHOLD=0.6   REVIEW_ESCALATE_SCORE=3   MAX_ITERATIONS=15   DE
 API_KEY=                        SLACK_WEBHOOK_URL=        LOG_LEVEL=INFO
 ```
 
+Phase 6–7 additions: `JAEGER_QUERY_URL` (trace endpoint), `EVALS_REPORTS_DIR` (eval reports, `latest.json` for the stats page), `BUDGETS_CONFIG_PATH` (`config/budgets.yaml`: a default loop budget, per-agent overrides for iterations / tokens / wall-clock / cost, and a whole-task cost cap; the specialist node picks the calling agent's budget). `scripts/dev_up.ps1` / `dev_up.sh` start the entire stack in order and record process ids under `.run/`; `scripts/demo.py` runs the showcase through the public API.
+
 ## 14. Security model
 
 - **Gate is mandatory.** There is exactly one code path from an agent to a tool: `registry.invoke()` which is only reachable through `gate.decide()`. Tests assert this.
