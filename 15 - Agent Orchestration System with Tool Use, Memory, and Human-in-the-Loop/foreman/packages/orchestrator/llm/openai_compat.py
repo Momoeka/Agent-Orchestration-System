@@ -66,6 +66,24 @@ def strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def text_content(raw: Any) -> str | None:
+    """``message.content`` as text. Providers return a string, None (tool-call turns), or — seen
+    live from the TokenRouter/Qwen fallback — a list of content parts; only text parts count."""
+    if raw is None or isinstance(raw, str):
+        return raw
+    if isinstance(raw, list):
+        parts = []
+        for part in raw:
+            if isinstance(part, dict):
+                if part.get("type") == "text" and isinstance(part.get("text"), str):
+                    parts.append(part["text"])
+            elif isinstance(part, str):
+                parts.append(part)
+        return "
+".join(parts)
+    return str(raw)
+
+
 def _parse_arguments(raw: str | None) -> tuple[dict[str, Any], str | None]:
     if not raw:
         return {}, None
@@ -160,10 +178,13 @@ class OpenAICompatProvider:
                 output_tokens=resp.usage.completion_tokens or 0,
             )
 
+        content = text_content(message.content)
         raw = message.model_dump(exclude_none=True)
         raw.pop("function_call", None)  # legacy field; never send it back
+        if "content" in raw or content is not None:
+            raw["content"] = content  # the history must carry text, not provider-specific parts
         return LLMResponse(
-            content=message.content,
+            content=content,
             tool_calls=tool_calls,
             finish_reason=choice.finish_reason or "",
             provider=self.provider_id,
