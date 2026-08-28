@@ -19,6 +19,8 @@ class TaskStatus(StrEnum):
 class TaskOptions(BaseModel):
     require_human_review: bool = False
     budget_usd: float | None = None
+    replay_of: str | None = None  # set on a task forked by replay (PRD F11)
+    replay_checkpoint: str | None = None
 
 
 class TaskEvent(BaseModel):

@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     delete,
+    func,
     select,
 )
 from sqlalchemy.exc import IntegrityError
@@ -391,6 +392,234 @@ class TaskStore:
                 for r in s.scalars(stmt).all()
             ]
 
+    def stats(self, *, days: int = 7) -> dict[str, Any]:
+        """Operational aggregates for the window (Architecture.md 9): tasks, approvals, tools,
+        latency percentiles, and the all-time count of unapproved destructive actions."""
+        since = _now() - dt.timedelta(days=days)
+
+        def in_window(value: dt.datetime | None) -> bool:
+            if value is None:
+                return False
+            aware = value if value.tzinfo else value.replace(tzinfo=dt.UTC)
+            return aware >= since
+
+        with self._sessions() as s:
+            tasks = [t for t in s.scalars(select(TaskRow)).all() if in_window(t.created_at)]
+            ids = [t.id for t in tasks]
+            calls = (
+                s.scalars(select(LLMCallRow).where(LLMCallRow.task_id.in_(ids))).all()
+                if ids
+                else []
+            )
+            approvals = (
+                s.scalars(select(ApprovalRow).where(ApprovalRow.task_id.in_(ids))).all()
+                if ids
+                else []
+            )
+            tools = (
+                s.scalars(select(ToolInvocationRow).where(ToolInvocationRow.task_id.in_(ids))).all()
+                if ids
+                else []
+            )
+            unapproved = s.scalar(
+                select(func.count())
+                .select_from(ToolInvocationRow)
+                .where(ToolInvocationRow.risk == "destructive")
+                .where(ToolInvocationRow.decision == "allow")
+                .where(ToolInvocationRow.ok.is_not(None))
+            )
+
+        def counts(values: list[str]) -> dict[str, int]:
+            out: dict[str, int] = {}
+            for v in values:
+                out[v] = out.get(v, 0) + 1
+            return out
+
+        def pct(values: list[float], p: float) -> float | None:
+            if not values:
+                return None
+            ordered = sorted(values)
+            idx = min(len(ordered) - 1, max(0, round(p / 100 * (len(ordered) - 1))))
+            return round(ordered[idx], 1)
+
+        done = [t for t in tasks if t.status == TaskStatus.DONE.value]
+        terminal = [
+            t
+            for t in tasks
+            if t.status
+            in (TaskStatus.DONE.value, TaskStatus.FAILED.value, TaskStatus.CANCELLED.value)
+        ]
+        latencies = [
+            (t.updated_at - t.created_at).total_seconds()
+            for t in done
+            if t.updated_at and t.created_at
+        ]
+        calls_by_task: dict[str, int] = {}
+        tokens_by_task: dict[str, int] = {}
+        for c in calls:
+            calls_by_task[c.task_id] = calls_by_task.get(c.task_id, 0) + 1
+            tokens_by_task[c.task_id] = (
+                tokens_by_task.get(c.task_id, 0) + c.input_tokens + c.output_tokens
+            )
+        decided = [a for a in approvals if a.status != ApprovalStatus.PENDING.value]
+        approved = [
+            a
+            for a in decided
+            if a.status in (ApprovalStatus.APPROVED.value, ApprovalStatus.MODIFIED.value)
+        ]
+        tasks_with_approvals = {a.task_id for a in approvals}
+        by_day = counts(
+            [(t.created_at.date().isoformat() if t.created_at else "unknown") for t in tasks]
+        )
+        tool_counts = counts([t.tool for t in tools])
+        return {
+            "window_days": days,
+            "tasks": {
+                "total": len(tasks),
+                "by_status": [
+                    {"status": k, "count": v}
+                    for k, v in sorted(counts([t.status for t in tasks]).items())
+                ],
+                "per_day": [{"day": k, "count": v} for k, v in sorted(by_day.items())],
+                "success_rate": round(len(done) / len(terminal), 4) if terminal else None,
+                "mean_llm_calls": (
+                    round(sum(calls_by_task.get(t.id, 0) for t in done) / len(done), 2)
+                    if done
+                    else None
+                ),
+                "mean_tokens": (
+                    round(sum(tokens_by_task.get(t.id, 0) for t in done) / len(done), 1)
+                    if done
+                    else None
+                ),
+                "mean_cost_usd": (
+                    round(sum(t.cost_usd or 0.0 for t in done) / len(done), 4) if done else None
+                ),
+                "latency_p50_s": pct(latencies, 50),
+                "latency_p95_s": pct(latencies, 95),
+            },
+            "approvals": {
+                "total": len(approvals),
+                "by_level": [
+                    {"level": k, "count": v}
+                    for k, v in sorted(counts([a.level for a in approvals]).items())
+                ],
+                "by_trigger": [
+                    {"trigger": k, "count": v}
+                    for k, v in sorted(counts([a.trigger for a in approvals]).items())
+                ],
+                "by_status": [
+                    {"status": k, "count": v}
+                    for k, v in sorted(counts([a.status for a in approvals]).items())
+                ],
+                "escalation_rate": (
+                    round(len(tasks_with_approvals) / len(tasks), 4) if tasks else None
+                ),
+                "approval_rate": round(len(approved) / len(decided), 4) if decided else None,
+            },
+            "tools": {
+                "total": len(tools),
+                "not_executed": sum(1 for t in tools if t.ok is None),
+                "by_tool": [
+                    {"tool": k, "count": v}
+                    for k, v in sorted(tool_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:12]
+                ],
+            },
+            "safety": {"unapproved_destructive_actions": int(unapproved or 0)},
+        }
+
+    def timeline(self, task_id: str) -> list[dict[str, Any]]:
+        """Ledger-only timeline of one task (the trace fallback when Jaeger is unreachable)."""
+        with self._sessions() as s:
+            calls = s.scalars(select(LLMCallRow).where(LLMCallRow.task_id == task_id)).all()
+            tools = s.scalars(
+                select(ToolInvocationRow).where(ToolInvocationRow.task_id == task_id)
+            ).all()
+            approvals = s.scalars(select(ApprovalRow).where(ApprovalRow.task_id == task_id)).all()
+            events = s.scalars(select(AuditLogRow).where(AuditLogRow.task_id == task_id)).all()
+        items: list[tuple[dt.datetime, str, str, int, dict[str, Any], bool]] = []
+        for c in calls:
+            items.append(
+                (
+                    c.created_at,
+                    f"llm.call {c.role}",
+                    "llm",
+                    c.latency_ms * 1000,
+                    {
+                        "provider": c.provider,
+                        "model": c.model,
+                        "tokens": c.input_tokens + c.output_tokens,
+                        "fallback": c.fallback,
+                    },
+                    False,
+                )
+            )
+        for t in tools:
+            items.append(
+                (
+                    t.created_at,
+                    f"tool.{t.tool}",
+                    "tool",
+                    t.latency_ms * 1000,
+                    {
+                        "subtask_id": t.subtask_id,
+                        "decision": t.decision,
+                        "risk": t.risk,
+                        "ok": t.ok,
+                        "reason": (t.reason or "")[:120],
+                    },
+                    t.ok is False,
+                )
+            )
+        for a in approvals:
+            items.append(
+                (
+                    a.created_at,
+                    f"hitl.{a.kind} {a.level}",
+                    "hitl",
+                    0,
+                    {
+                        "approval_id": a.id,
+                        "status": a.status,
+                        "decision": a.decision,
+                        "decided_by": a.decided_by,
+                    },
+                    False,
+                )
+            )
+        for e in events:
+            items.append(
+                (
+                    e.created_at,
+                    f"event.{e.action}",
+                    "other",
+                    0,
+                    {"actor": e.actor, **(e.payload or {})},
+                    False,
+                )
+            )
+        items.sort(key=lambda x: x[0])
+        if not items:
+            return []
+        t0 = items[0][0]
+        out = []
+        for i, (at, name, kind, dur, attrs, err) in enumerate(items):
+            out.append(
+                {
+                    "id": f"l{i}",
+                    "parent": None,
+                    "name": name,
+                    "kind": kind,
+                    "start_us": int(at.timestamp() * 1e6),
+                    "offset_us": int((at - t0).total_seconds() * 1e6),
+                    "duration_us": int(dur),
+                    "attrs": {k: v for k, v in attrs.items() if v is not None},
+                    "error": err,
+                    "depth": 0,
+                }
+            )
+        return out
+
     def task_view(self, task_id: str) -> dict[str, Any] | None:
         with self._sessions() as s:
             row = s.get(TaskRow, task_id)
@@ -427,6 +656,19 @@ class TaskStore:
                 "tokens": sum(c.input_tokens + c.output_tokens for c in calls),
                 "tool_calls": len(tools),
                 "tool_calls_not_executed": sum(1 for t in tools if t.ok is None),
+                "options": row.options or {},
+                "tool_ledger": [
+                    {
+                        "subtask_id": t.subtask_id,
+                        "tool": t.tool,
+                        "risk": t.risk,
+                        "decision": t.decision,
+                        "ok": t.ok,
+                        "reason": (t.reason or "")[:120],
+                        "at": _iso(t.created_at),
+                    }
+                    for t in sorted(tools, key=lambda t: t.id)
+                ],
                 "approvals": [
                     {
                         "id": a.id,

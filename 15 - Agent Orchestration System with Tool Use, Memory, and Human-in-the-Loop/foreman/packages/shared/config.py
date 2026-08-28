@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     memory_recall_max_tokens: int = 600
     memory_half_life_days: float = 30.0
     memory_max_age_days: int = 180
+    # --- observability + evals (Architecture.md 9, Phases.md 6) ---
+    jaeger_query_url: str = "http://localhost:16686"
+    evals_reports_dir: Path = Path("packages/evals/reports")
 
     # --- ops ---
     api_base_url: str = "http://localhost:8000"  # what the operator UI talks to

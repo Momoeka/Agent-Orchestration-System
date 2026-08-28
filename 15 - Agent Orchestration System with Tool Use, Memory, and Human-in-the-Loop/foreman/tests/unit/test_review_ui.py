@@ -125,6 +125,95 @@ MEMORIES = [
         "source_task_id": "t-1234567890",
     }
 ]
+STATS: dict[str, Any] = {
+    "window_days": 7,
+    "tasks": {
+        "total": 3,
+        "by_status": [{"status": "done", "count": 3}],
+        "per_day": [{"day": "2026-08-28", "count": 3}],
+        "success_rate": 1.0,
+        "mean_llm_calls": 12.0,
+        "mean_tokens": 900.0,
+        "mean_cost_usd": 0.0,
+        "latency_p50_s": 80.0,
+        "latency_p95_s": 120.0,
+    },
+    "approvals": {
+        "total": 1,
+        "by_level": [{"level": "L2", "count": 1}],
+        "by_trigger": [{"trigger": "sensitive_tool_call", "count": 1}],
+        "by_status": [{"status": "approved", "count": 1}],
+        "escalation_rate": 0.33,
+        "approval_rate": 1.0,
+    },
+    "tools": {"total": 5, "not_executed": 0, "by_tool": [{"tool": "db_query", "count": 5}]},
+    "safety": {"unapproved_destructive_actions": 0},
+    "last_eval": {
+        "run_id": "20260828-1",
+        "label": "smoke",
+        "finished_at": "2026-08-28T12:00:00",
+        "k": 1,
+        "task_count": 2,
+        "run_count": 2,
+        "metrics": {
+            "success_rate": 1.0,
+            "pass_k": 1.0,
+            "tool_precision": 1.0,
+            "tool_recall": 1.0,
+            "escalation_precision": 1.0,
+            "escalation_recall": 1.0,
+            "injection_resistance": 1.0,
+            "judge_mean": 4.5,
+            "unapproved_destructive_actions": 0,
+        },
+        "diff_verdict": None,
+    },
+}
+TRACE: dict[str, Any] = {
+    "task_id": "t-1234567890",
+    "source": "jaeger",
+    "traces": 1,
+    "span_count": 3,
+    "duration_us": 3_000_000,
+    "spans": [
+        {
+            "id": "a",
+            "parent": None,
+            "name": "task",
+            "kind": "task",
+            "start_us": 0,
+            "offset_us": 0,
+            "duration_us": 3_000_000,
+            "attrs": {"task_id": "t-1234567890"},
+            "error": False,
+            "depth": 0,
+        },
+        {
+            "id": "b",
+            "parent": "a",
+            "name": "llm.call",
+            "kind": "llm",
+            "start_us": 0,
+            "offset_us": 10,
+            "duration_us": 900_000,
+            "attrs": {"model": "m", "provider": "p"},
+            "error": False,
+            "depth": 1,
+        },
+        {
+            "id": "c",
+            "parent": "a",
+            "name": "MCP send tools/list",
+            "kind": "mcp",
+            "start_us": 0,
+            "offset_us": 20,
+            "duration_us": 1_000,
+            "attrs": {},
+            "error": False,
+            "depth": 1,
+        },
+    ],
+}
 OUTBOX = [
     {
         "id": 1,
@@ -197,6 +286,43 @@ class FakeClient:
     def outbox(self, limit: int = 100) -> list[dict[str, Any]]:
         return OUTBOX
 
+    def stats(self, days: int = 7) -> dict[str, Any]:
+        return STATS
+
+    def trace(self, task_id: str) -> dict[str, Any]:
+        return TRACE
+
+    def checkpoints(self, task_id: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "checkpoint_id": "cp-1234567890",
+                "step": 2,
+                "produced_by": ["plan"],
+                "next": ["dispatch"],
+                "status": "running",
+                "subtasks_done": [],
+                "created_at": "",
+            }
+        ]
+
+    def replay(self, task_id: str, checkpoint_id: str, overrides: list[str]) -> dict[str, Any]:
+        self.decisions.append(
+            {"replay": task_id, "checkpoint": checkpoint_id, "overrides": overrides}
+        )
+        return {"task_id": "t-fork", "replay_of": task_id, "checkpoint_id": checkpoint_id}
+
+    def replay_diff(self, task_id: str) -> dict[str, Any]:
+        return {
+            "status": ["done", "done"],
+            "llm_calls": [8, 4],
+            "tool_calls": [3, 1],
+            "approvals": [0, 0],
+            "deliverable_changed": True,
+            "deliverable_title": ["a", "b"],
+            "subtasks": {"A": {"change": "same"}, "B": {"change": "removed", "source": "accepted"}},
+            "tools_by_name": {"db_query": [2, 1]},
+        }
+
     def memory_users(self) -> list[dict[str, Any]]:
         return [{"user_id": "u_42", "count": 1}]
 
@@ -267,3 +393,23 @@ def test_memory_page_lists_and_deletes() -> None:
     delete.click().run()
     assert not at.exception
     assert {"deleted_for": "u_42"} in FakeClient.decisions
+
+
+def test_stats_page_renders_tiles_and_last_eval() -> None:
+    at = run("apps/review_ui/pages/5_Stats.py")
+    labels = {m.label: m.value for m in at.metric}
+    assert labels["Unapproved destructive actions"] == "0" and labels["Task success"] == "100%"
+    assert any("the gate held" in m.value for m in at.markdown)
+
+
+def test_trace_page_renders_tree_and_requests_a_replay() -> None:
+    at = run("apps/review_ui/pages/6_Trace.py")
+    at.text_input(key="trace-task").input("t-1234567890").run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert any("source: jaeger" in c.value for c in at.caption)
+    next(b for b in at.button if b.label == "List checkpoints").click().run()
+    picker = next(sb for sb in at.selectbox if sb.label == "Checkpoint")
+    picker.select(picker.options[0]).run()
+    next(b for b in at.button if "Replay into a new task" in b.label).click().run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert any(d.get("replay") == "t-1234567890" for d in FakeClient.decisions)

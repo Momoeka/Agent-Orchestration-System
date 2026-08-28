@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -85,6 +86,41 @@ class ForemanClient:
 
     def delete_memories(self, user_id: str) -> dict[str, Any]:
         r = self._client.delete(f"/v1/memory/users/{user_id}")
+        r.raise_for_status()
+        return dict(r.json())
+
+    def stats(self, days: int = 7) -> dict[str, Any]:
+        r = self._client.get("/v1/stats", params={"days": days})
+        r.raise_for_status()
+        return dict(r.json())
+
+    def trace(self, task_id: str) -> dict[str, Any]:
+        r = self._client.get(f"/v1/tasks/{task_id}/trace")
+        r.raise_for_status()
+        return dict(r.json())
+
+    def checkpoints(self, task_id: str) -> list[dict[str, Any]]:
+        r = self._client.get(f"/v1/tasks/{task_id}/checkpoints", timeout=60.0)
+        r.raise_for_status()
+        return list(r.json())
+
+    def replay(self, task_id: str, checkpoint_id: str, overrides: list[str]) -> dict[str, Any]:
+        parsed: dict[str, Any] = {}
+        for line in overrides:
+            key, _, value = line.partition("=")
+            try:
+                parsed[key.strip()] = json.loads(value)
+            except json.JSONDecodeError:
+                parsed[key.strip()] = value
+        r = self._client.post(
+            f"/v1/tasks/{task_id}/replay",
+            json={"checkpoint_id": checkpoint_id, "overrides": parsed},
+        )
+        r.raise_for_status()
+        return dict(r.json())
+
+    def replay_diff(self, task_id: str) -> dict[str, Any]:
+        r = self._client.get(f"/v1/tasks/{task_id}/diff")
         r.raise_for_status()
         return dict(r.json())
 

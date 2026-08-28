@@ -60,6 +60,7 @@ TASK_NAME = "foreman.run_task"
 RESUME_TASK_NAME = "foreman.resume_task"
 EXPIRE_TASK_NAME = "foreman.expire_approvals"
 CONSOLIDATE_TASK_NAME = "foreman.consolidate_memory"
+REPLAY_TASK_NAME = "foreman.replay_task"
 
 
 def checkpointer_conninfo(database_url: str) -> str:
@@ -207,3 +208,55 @@ def consolidate_memory(self: Any) -> dict[str, int]:
         max_age_days=_settings.memory_max_age_days,
     )
     return {"scanned": report.scanned, "expired": report.expired, "fading": report.fading}
+
+
+async def execute_replay(
+    new_task_id: str,
+    source_task_id: str,
+    checkpoint_id: str,
+    overrides: dict[str, Any],
+    *,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    """Fork ``source_task_id`` at ``checkpoint_id`` into the pre-created ``new_task_id`` and run it."""
+    from packages.orchestrator.tracing.replay import replay
+
+    settings = settings or get_settings()
+    provider = configure_tracing(settings)
+    store = make_store(settings)
+    approvals = make_approvals(settings)
+    deps = await build_runtime(settings, store=store, approvals=approvals)
+    async with AsyncPostgresSaver.from_conn_string(
+        checkpointer_conninfo(settings.database_url), serde=checkpoint_serde()
+    ) as saver:
+        await saver.setup()
+        graph = build_graph(deps, checkpointer=saver)
+        with span("task", task_id=new_task_id, replay_of=source_task_id, checkpoint=checkpoint_id):
+            try:
+                result = await replay(
+                    graph,
+                    store=store,
+                    approvals=approvals,
+                    source_task_id=source_task_id,
+                    checkpoint_id=checkpoint_id,
+                    overrides=overrides,
+                    new_task_id=new_task_id,
+                )
+            except Exception as e:
+                store.set_status(
+                    new_task_id,
+                    TaskStatus.FAILED,
+                    error=f"replay: {type(e).__name__}: {str(e)[:300]}",
+                )
+                log.error("replay.crashed", task_id=new_task_id, error=str(e)[:300])
+                raise
+    provider.force_flush()
+    return {"task_id": new_task_id, "status": result["final"].get("status")}
+
+
+@celery_app.task(name=REPLAY_TASK_NAME, bind=True, max_retries=0)  # type: ignore[untyped-decorator]
+def replay_task(
+    self: Any, new_task_id: str, source_task_id: str, checkpoint_id: str, overrides: dict[str, Any]
+) -> dict[str, Any]:
+    use_selector_event_loop_on_windows()
+    return asyncio.run(execute_replay(new_task_id, source_task_id, checkpoint_id, overrides))

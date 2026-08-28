@@ -89,8 +89,20 @@ fmt:
 typecheck:
 	uv run mypy
 
-eval:            ## Phase 6+: run the golden task set (k=3) and write a report
+eval:            ## run the golden set, k=3, and write reports/<run_id>.md (diff vs baseline if one exists)
 	uv run python -m packages.evals.runner --k 3
+
+eval-smoke:      ## two tasks per category, k=1 — a quick check that the harness and stack work
+	uv run python -m packages.evals.runner --k 1 --sample 2 --label smoke
+
+eval-baseline:   ## full set, k=3, saved as reports/baseline.json for future diffs
+	uv run python -m packages.evals.runner --k 3 --save-baseline --label baseline
+
+replay-list:     ## list a task's checkpoints: make replay-list T=<task_id>
+	uv run python -m packages.orchestrator.tracing.replay $(T) --list
+
+replay:          ## fork a task at a checkpoint into a new task and diff: make replay T=<task_id> C=<checkpoint_id>
+	uv run python -m packages.orchestrator.tracing.replay $(T) --from $(C)
 
 demo:            ## Phase 8: seed data and run the showcase task end to end
 	uv run python -m infra.seed.generate && uv run python -m scripts.demo

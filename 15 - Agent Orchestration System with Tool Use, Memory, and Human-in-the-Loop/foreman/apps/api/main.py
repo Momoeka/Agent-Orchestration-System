@@ -12,11 +12,13 @@ from fastapi import FastAPI
 from apps.api.config.settings import Settings, get_settings
 from apps.api.middleware.auth import ApiKeyMiddleware
 from apps.api.middleware.errors import install_error_handlers
-from apps.api.routes import approvals, memory, tasks
+from apps.api.routes import approvals, memory, stats, tasks
 from apps.api.services.approval_service import ApprovalService
 from apps.api.services.memory_service import MemoryService
 from apps.api.services.queue import CeleryQueue, TaskQueue
+from apps.api.services.stats_service import StatsService
 from apps.api.services.task_service import TaskService
+from apps.api.services.trace_service import Fetcher, ReplayService, TraceService
 from packages.orchestrator.memory.long_term import LongTermMemory
 from packages.orchestrator.memory.persistent import ApprovalStore, OutboxRepository, TaskStore
 from packages.orchestrator.runtime import make_approvals, make_long_term, make_outbox, make_store
@@ -32,13 +34,18 @@ def create_app(
     queue: TaskQueue | None = None,
     long_term: LongTermMemory | None = None,
     memory_enabled: bool = True,
+    trace_fetch: Fetcher | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_tracing(settings)
     queue = queue or CeleryQueue()
     app = FastAPI(title="Foreman", version="0.1.0")
     app.state.settings = settings
-    app.state.task_service = TaskService(store or make_store(settings), queue)
+    task_store = store or make_store(settings)
+    app.state.task_service = TaskService(task_store, queue)
+    app.state.stats_service = StatsService(task_store, settings.evals_reports_dir)
+    app.state.trace_service = TraceService(task_store, settings, fetch=trace_fetch)
+    app.state.replay_service = ReplayService(task_store, queue)
     app.state.approval_service = ApprovalService(approvals_store or make_approvals(settings), queue)
     app.state.outbox = outbox or make_outbox(settings)
     app.state.memory_service = MemoryService(
@@ -53,6 +60,7 @@ def create_app(
     app.include_router(tasks.router)
     app.include_router(approvals.router)
     app.include_router(memory.router)
+    app.include_router(stats.router)
 
     @app.get("/health")
     def health() -> dict[str, str]:
