@@ -1,13 +1,16 @@
 """Per-role fallback chain: primary → next entry on 429 / 5xx / timeout / misconfiguration /
-schema failure twice. Records a `CostEntry` (with ``fallback=True`` past the first entry) and one
-``llm.call`` span per attempt (Architecture.md §9–10).
+schema failure twice. When *every* entry failed for a retryable reason (typically all providers
+rate-limited at once), the chain backs off and tries again — up to three rounds — before giving
+up. Records a `CostEntry` (with ``fallback=True`` past the first entry) and one ``llm.call`` span
+per attempt (Architecture.md §9–10, Rules.md §4).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import structlog
@@ -25,6 +28,7 @@ from packages.shared.types.llm import LLMMessage, LLMResponse
 log = structlog.get_logger(__name__)
 
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE | re.MULTILINE)
+BACKOFF_SECONDS: tuple[float, ...] = (3.0, 8.0, 20.0)
 
 
 def extract_json(text: str | None) -> Any:
@@ -47,12 +51,25 @@ class ChainedLLM:
         *,
         prices: dict[str, dict[str, float]] | None = None,
         on_cost: Callable[[CostEntry], None] | None = None,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self.role = role
         self.config = config
         self._pool = pool
         self._prices = prices or {}
         self._on_cost = on_cost
+        self._sleep = sleep
+
+    def with_cost_sink(self, on_cost: Callable[[CostEntry], None] | None) -> ChainedLLM:
+        """Same chain, different cost callback — one per task/subtask so ledgers stay separate."""
+        return ChainedLLM(
+            self.role,
+            self.config,
+            self._pool,
+            prices=self._prices,
+            on_cost=on_cost,
+            sleep=self._sleep,
+        )
 
     async def chat(
         self,
@@ -65,7 +82,41 @@ class ChainedLLM:
         temperature: float = 0.2,
         timeout_s: float = 60.0,
     ) -> LLMResponse:
+        all_errors: list[str] = []
+        for round_index in range(len(BACKOFF_SECONDS) + 1):
+            resp, errors, retry_worthy = await self._try_chain(
+                messages,
+                tools=tools,
+                response_schema=response_schema,
+                schema_name=schema_name,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout_s=timeout_s,
+            )
+            if resp is not None:
+                return resp
+            all_errors.extend(errors)
+            if not retry_worthy or round_index == len(BACKOFF_SECONDS):
+                break
+            delay = BACKOFF_SECONDS[round_index]
+            log.warning("chain.backoff", role=self.role, round=round_index + 1, delay_s=delay)
+            await self._sleep(delay)
+        raise RetryableError(f"chain exhausted for role '{self.role}': " + " | ".join(all_errors))
+
+    async def _try_chain(
+        self,
+        messages: list[LLMMessage],
+        *,
+        tools: list[dict[str, Any]] | None,
+        response_schema: dict[str, Any] | None,
+        schema_name: str,
+        max_tokens: int,
+        temperature: float,
+        timeout_s: float,
+    ) -> tuple[LLMResponse | None, list[str], bool]:
+        """One pass over the chain. Returns (response, errors, any_failure_was_retryable)."""
         errors: list[str] = []
+        retry_worthy = False
         validator = Draft202012Validator(response_schema) if response_schema else None
 
         for index, entry in enumerate(self.config.chain):
@@ -94,7 +145,19 @@ class ChainedLLM:
                             effort=self.config.effort,
                             timeout_s=timeout_s,
                         )
-                    except (RetryableError, NonRetryableError) as e:
+                    except RetryableError as e:
+                        retry_worthy = True
+                        errors.append(str(e))
+                        span.set_attribute("error", str(e)[:500])
+                        log.warning(
+                            "chain.entry_failed",
+                            role=self.role,
+                            provider=entry.provider,
+                            model=entry.model,
+                            error=str(e)[:300],
+                        )
+                        break  # next entry
+                    except NonRetryableError as e:
                         errors.append(str(e))
                         span.set_attribute("error", str(e)[:500])
                         log.warning(
@@ -137,6 +200,6 @@ class ChainedLLM:
                     span.set_attribute("tool_calls", len(resp.tool_calls))
                     if self._on_cost is not None:
                         self._on_cost(cost)
-                    return resp
+                    return resp, errors, retry_worthy
 
-        raise RetryableError(f"chain exhausted for role '{self.role}': " + " | ".join(errors))
+        return None, errors, retry_worthy

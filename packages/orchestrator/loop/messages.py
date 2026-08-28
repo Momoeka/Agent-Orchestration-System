@@ -1,4 +1,10 @@
-"""Builders for the OpenAI-format message list the loop maintains."""
+"""Builders for the OpenAI-format message list the loop maintains.
+
+Assistant turns are rebuilt from the standard fields only (``role``, ``content``, ``tool_calls``).
+Providers decorate their responses with extra keys (``reasoning`` on Groq's gpt-oss, and others),
+and re-sending those to a *different* provider after a fallback is a 422 — so they never enter
+the history.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +31,8 @@ def render_subtask(subtask: Subtask) -> str:
         f"## Subtask {subtask.id}",
         subtask.description.strip(),
     ]
+    if subtask.needs:
+        parts.append("## Needs from earlier steps\n" + "\n".join(f"- {n}" for n in subtask.needs))
     if subtask.inputs:
         parts.append(
             "## Inputs from earlier steps\n```json\n"
@@ -41,9 +49,8 @@ def render_subtask(subtask: Subtask) -> str:
 
 
 def assistant_message(response: LLMResponse) -> LLMMessage:
-    """Append the assistant turn exactly as returned so tool_call ids line up."""
-    msg: dict[str, Any] = dict(response.raw_assistant_message) or {"role": "assistant"}
-    msg["role"] = "assistant"
+    """The assistant turn with only portable fields, so any provider in the chain accepts it."""
+    msg: dict[str, Any] = {"role": "assistant", "content": response.content or ""}
     if response.tool_calls:
         msg["tool_calls"] = [
             {
@@ -53,10 +60,6 @@ def assistant_message(response: LLMResponse) -> LLMMessage:
             }
             for tc in response.tool_calls
         ]
-        msg.setdefault("content", None)
-    else:
-        msg["content"] = response.content or ""
-        msg.pop("tool_calls", None)
     return msg
 
 

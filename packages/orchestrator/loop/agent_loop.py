@@ -13,13 +13,14 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
+from typing import Any
 
 import structlog
 from pydantic import ValidationError
 
 from packages.orchestrator.agents.base import AgentSpec
 from packages.orchestrator.gate.decide import Gate
-from packages.orchestrator.llm.chains import ChainedLLM
+from packages.orchestrator.llm.client import ChatLLM
 from packages.orchestrator.llm.openai_compat import strict_schema
 from packages.orchestrator.loop.budgets import Budget, BudgetTracker
 from packages.orchestrator.loop.messages import (
@@ -44,7 +45,7 @@ SUBMIT_TOOL = "submit_result"
 MAX_NUDGES = 2
 
 
-def submit_tool_schema() -> dict:  # type: ignore[type-arg]
+def submit_tool_schema() -> dict[str, Any]:
     schema = SubmittedResult.model_json_schema()
     schema.pop("title", None)
     return {
@@ -62,14 +63,16 @@ def submit_tool_schema() -> dict:  # type: ignore[type-arg]
 
 @dataclass
 class LoopDeps:
-    llm: ChainedLLM
+    llm: ChatLLM
     registry: ToolRegistry
     gate: Gate
     budget: Budget = field(default_factory=Budget)
     llm_timeout_s: float = 90.0
 
 
-async def run_agent_loop(agent: AgentSpec, subtask: Subtask, deps: LoopDeps) -> SubtaskResult:
+async def run_agent_loop(
+    agent: AgentSpec, subtask: Subtask, deps: LoopDeps, *, attempt: int = 1
+) -> SubtaskResult:
     tracker = BudgetTracker(deps.budget)
     cost_entries: list[CostEntry] = []
     tools_used: list[str] = []
@@ -79,11 +82,7 @@ async def run_agent_loop(agent: AgentSpec, subtask: Subtask, deps: LoopDeps) -> 
         cost_entries.append(entry)
         tracker.record(entry)
 
-    # The chain records cost through this callback; bind it for the life of this loop.
-    llm = ChainedLLM(
-        deps.llm.role, deps.llm.config, deps.llm._pool, prices=deps.llm._prices, on_cost=on_cost
-    )
-
+    llm = deps.llm.with_cost_sink(on_cost)
     messages: list[LLMMessage] = [
         system_message(agent.system_prompt),
         user_message(render_subtask(subtask)),
@@ -96,6 +95,7 @@ async def run_agent_loop(agent: AgentSpec, subtask: Subtask, deps: LoopDeps) -> 
         return SubtaskResult(
             **submitted.model_dump(),
             subtask_id=subtask.id,
+            attempt=attempt,
             tools_used=sorted(set(tools_used)),
             iterations=iterations,
             cost_entries=cost_entries,
@@ -112,7 +112,7 @@ async def run_agent_loop(agent: AgentSpec, subtask: Subtask, deps: LoopDeps) -> 
             error=reason,
         )
 
-    with span(f"agent.{agent.name}", subtask_id=subtask.id, agent=agent.name):
+    with span(f"agent.{agent.name}", subtask_id=subtask.id, agent=agent.name, attempt=attempt):
         iteration = 0
         while True:
             try:
@@ -157,7 +157,10 @@ async def run_agent_loop(agent: AgentSpec, subtask: Subtask, deps: LoopDeps) -> 
                                     tool_call_id=call.id,
                                     name=call.name,
                                     is_error=True,
-                                    content=f"submit_result rejected; fix and call again: {str(e)[:600]}",
+                                    content=(
+                                        "submit_result rejected; fix and call again: "
+                                        f"{str(e)[:600]}"
+                                    ),
                                 )
                             )
                     else:
@@ -196,8 +199,10 @@ async def _execute(
             tool_call_id=call.id,
             name=call.name,
             is_error=True,
-            content=f"requires human approval ({decision.reason}); approval flow not available in this phase — "
-            "choose an approach that does not need this tool",
+            content=(
+                f"requires human approval ({decision.reason}); approval flow not available in "
+                "this phase — choose an approach that does not need this tool"
+            ),
         )
     spec = deps.registry.get(call.name)
     server = spec.server if spec else "unknown"

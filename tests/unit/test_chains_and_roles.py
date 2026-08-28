@@ -74,7 +74,9 @@ async def test_skips_misconfigured_provider() -> None:
 
 
 async def test_exhausted_chain_raises_retryable() -> None:
-    a = ScriptedClient("a", [RetryableError("boom")])
+    # Non-retryable failures on every entry: no backoff rounds, immediate exhaustion.
+    # (Backoff on retryable failures is covered in test_chain_backoff_and_messages.py.)
+    a = ScriptedClient("a", [NonRetryableError("boom")])
     b = ScriptedClient("b", [NonRetryableError("model not found")])
     llm = ChainedLLM("reviewer", _role(("a", "m1"), ("b", "m2")), FakePool({"a": a, "b": b}))  # type: ignore[arg-type]
     with pytest.raises(RetryableError, match="chain exhausted"):

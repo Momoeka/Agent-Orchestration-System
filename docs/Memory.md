@@ -4,6 +4,46 @@ Running log across coding sessions. **Read this first; update it last** (Rules.m
 
 ---
 
+## 2026-08-28 — Phase 2: the graph — DONE
+
+### Built
+- `packages/shared/types`: `ExecutionPlan` (validates ids, dependencies, cycles; topological `order()`), `ReviewJudgement`/`ReviewVerdict`, `Deliverable`, `TaskStatus`/`TaskOptions`/`TaskEvent`; `Subtask` gained `needs` (planner-facing) and `attempt` on results; `inputs` is hidden from the planner schema via `SkipJsonSchema`.
+- `packages/orchestrator/graph`: `state.py` (`TaskState` with merge/append reducers, `SpecialistInput` for `Send()`), `edges.py` (ready/pending/rejected helpers; `route_after_plan`, `route_dispatch`, `route_after_review` — retries with feedback up to `max_retries`, dispatches newly-ready dependents, synthesises when all accepted, escalates when stuck), `deps.py` (`GraphDeps`/`GraphConfig`), one file per node (`intake`, `recall_memory` stub, `plan`, `approve_plan` stub, `dispatch`, `specialist`, `review`, `escalate` stub, `synthesize`, `deliver`, `write_memory` stub), `build_graph.py`.
+- Agents: supervisor (plan + synthesise prompts), reviewer, analysis, writing, code_exec; `agents/catalog.py`.
+- LLM layer: `ChatLLM` protocol with `with_cost_sink()`; `ChainedLLM` gained **backoff rounds** (3 s / 8 s / 20 s) when every entry fails retryably; `OpenAICompatProvider` gained a **per-provider concurrency semaphore** (`limits.concurrency` in models.yaml); `strict_schema()` now also requires every property and strips defaults (OpenAI/Groq strict modes).
+- Tier 2: `memory/db.py`, `memory/persistent.py` (`tasks`, `subtasks`, `llm_calls`, `audit_log`; `TaskStore` with `create_task`, `set_status`, `set_plan`, `finish_task`, `task_view`); Alembic (`alembic.ini`, `infra/migrations/`, revision `d03e998066fb`) with an `include_object` filter so autogenerate ignores the seed and LangGraph checkpoint tables.
+- `packages/orchestrator/runtime.py` (build `GraphDeps` from settings), `worker.py` (Celery `foreman.run_task`; `execute_task` resumes from the Postgres checkpoint when one exists), `apps/api` (`POST /v1/tasks`, `GET /v1/tasks/{id}`, `/health`; API-key middleware; RFC 7807 errors; `create_app` factory — served with `uvicorn … --factory`), `scripts/run_task.py` (in-process, no broker), `packages/shared/asyncio_compat.py` (selector loop on Windows for psycopg async).
+- Tests: plan validation + every edge (`test_plan_and_edges.py`); the full graph with scripted LLMs, empty tool registry, SQLite store and `MemorySaver` (`test_graph_flow.py`: A→B→C, parallel fan-out, retry-with-feedback, escalation after max retries, low-confidence and `require_human_review` fail closed, crash-then-resume, plan persisted early); API (`test_api.py`); chain backoff + assistant-message sanitisation (`test_chain_backoff_and_messages.py`); Postgres resume (`tests/integration/test_graph_postgres_resume.py`).
+
+### Verified
+- `uv run pytest` → **91 passed, 1 skipped** (2 live tests deselected). `ruff` clean. `mypy --strict` clean (109 files). `alembic upgrade head` applied.
+- **Postgres resume integration test: passed** — reviewer crashes mid-task, a brand-new saver + graph resumes the thread, A is not re-run, task ends `done`.
+- **Live acceptance (Phase 2 done-when) via `POST /v1/tasks` → Redis → Celery → graph:** task `f772fc7f…` `done` in 313 s. Plan of 6 subtasks (2 research, 2 analysis, 2 writing), **all accepted at 5/5**, F on attempt 2 after reviewer feedback. Deliverable "Summary of Lender Documents for Claim CLM-4471 and Draft Complaint Letter", confidence 0.99, 11 sources; loan table matches the DB row-for-row; rules A2 / R1–R4 applied correctly and the lender's "not upheld" flagged as conflicting with §D. 40 LLM calls persisted, 261k tokens, $0.
+- **Jaeger:** 220 spans — 53 `llm.call` (33 Mistral, 12 TokenRouter Qwen, 7 Gemini, 1 Groq), **13 fallbacks, all recovered**, 23 `gate.decide` (all allow, all safe), 7 reviews, 36 specialist iterations.
+
+### The first live run failed — and what it taught (all fixed)
+1. **Assistant messages must be portable.** Re-sending Groq's assistant turn verbatim (it carries a `reasoning` field) to Mistral after a mid-loop fallback → HTTP 422. `assistant_message()` now emits only `role`/`content`/`tool_calls`. Regression test added.
+2. **Groq's free tier is 8,000 tokens per minute** on `gpt-oss-120b`; a specialist call is ~9–10k tokens once a document and the schema are in history → HTTP 413 every time. Groq now serves only short-prompt roles (reviewer fallback, cheap). Specialist/supervisor chains: `mistral-medium-latest` → `qwen/qwen3.8-max-free` (TokenRouter) → `gemini-3.5-flash`.
+3. **Parallel specialists burst past Mistral's rate limit.** Per-provider `concurrency` (Mistral 1, Gemini 1, TokenRouter 1, Groq 2) + chain backoff rounds. In the passing run Mistral still 429'd 13 times; every one fell through to Qwen and the task finished.
+4. The failure itself was handled exactly as designed: reviewer rejected the empty results with precise feedback, three retries each, then `escalate` ended the task `failed` with the reason — persisted, no hang, no fail-open.
+
+### Other decisions and notes
+- Phase 2 stubs for HITL: `approve_plan` (low confidence or `require_human_review`) and `escalate` end the task `failed` with an explanatory error — fail closed until Phase 4's `interrupt()`.
+- `deliver` runs for failed tasks too, so every outcome is persisted; `write_memory` only after `done`.
+- `set_plan` is called from the `plan` node (via `asyncio.to_thread`) so the API shows the plan and `planned` subtasks while the task runs.
+- LangGraph fan-out: `route_dispatch` / `route_after_review` return `Send(specialist_<name>, SpecialistInput)`; every specialist node edges into `review`, which runs once per superstep.
+- The supervisor used all six allowed subtasks for the showcase request (two per specialist type). Fine for the demo; the Phase 6 evals should measure whether fewer, larger subtasks do better.
+- `worker.py` / `run_task.py` / `conftest.py` set `WindowsSelectorEventLoopPolicy` — psycopg async needs it.
+- Windows console is cp1252: print model output with `sys.stdout.reconfigure(encoding="utf-8")`.
+- Docker Desktop stopped between sessions again; `make up` needs the engine running.
+
+### Open / next → Phase 3 (tools + gate)
+- MCP servers: `sandbox` (Docker per call, no network), `web_search` (provider interface + fixture backend), `actions` (outbox only); full `policy.yaml`; Redis token-bucket limiter; `gate/classifier.py` on the cheap role for `risky` tools; `tool_invocations` rows; `Dockerfile.mcp` build for all five.
+- Still open: rotate the paid TokenRouter key; `qwen3:8b` pull only when needed; `make` not installed.
+- Background processes from this session (API :8000, worker, MCP :7004/:7002) die with the session; README lists the commands.
+
+---
+
 ## 2026-08-27 — Phase 1: skeleton + one agent — DONE
 
 ### Built
@@ -22,7 +62,7 @@ Running log across coding sessions. **Read this first; update it last** (Rules.m
 - Seed: 200 claims, 555 loans, 201 documents; `foreman_ro` refuses INSERT ("cannot execute INSERT in a read-only transaction").
 - **Live acceptance run** (`scripts/run_subtask.py`, CLM-4471): `status=completed` in 3 iterations, 3 LLM calls on `mistral-medium-latest` (no fallback), 7,110 tokens, tools `db_schema → files_list_dir → db_query → files_read_file`, correct loan table + lender decision + checks, sources cited.
 - **Jaeger trace**: 28 spans — `task` (7.6 s) → `agent.research` → 3 × `agent.research.iteration` → 3 × `llm.call` (provider/model/tokens), 4 × `gate.decide` (all allow, safe), 4 × `tool.*` (all ok), plus the mcp SDK's own `MCP send …` spans nested underneath.
-- Compose: redis, postgres (healthy), chroma, jaeger up. Ollama image pull was still running at the end of the session; `nomic-embed-text` pull follows it.
+- Compose: redis, postgres (healthy), chroma, jaeger, ollama up; `nomic-embed-text` pulled.
 
 ### Decisions and lessons
 1. **mcp SDK is 2.x (2.1.1).** `FastMCP` → `MCPServer`; host/port/`stateless_http` go to `run()`; client is `mcp.Client(url_or_server)`; results expose `is_error` / `structured_content`; listed tools expose `input_schema`. Docs updated to the 2.x names.
@@ -34,12 +74,6 @@ Running log across coding sessions. **Read this first; update it last** (Rules.m
 7. Docker Desktop must be running before `make up`; the `docker` client works even when the engine is down (Day 0 compose failure).
 8. Exceptions renamed with the `Error` suffix (ruff N818); Rules.md §4 updated.
 9. mypy: `sqlparse` ships no types → `disallow_untyped_calls=false` for the guard module only.
-
-### Open / next → Phase 2 (graph)
-- `graph/state.py`, `edges.py`, `nodes/` (intake, recall stub, plan, dispatch with `Send`, review, synthesize, deliver, write_memory stub), `build_graph.py` with `PostgresSaver`; supervisor + reviewer agents; remaining specialists as copies of research; `worker.py` (Celery `run_task`); `apps/api` with `POST /v1/tasks`, `GET /v1/tasks/{id}`; tasks/subtasks/llm_calls repositories + Alembic.
-- Phase 2 done-when: a 3-subtask task with A → B → C runs end to end; kill the worker mid-task, restart, it completes from the checkpoint.
-- Still open from Day 0: rotate the paid TokenRouter key; `qwen3:8b` pull only when needed; `make` not installed (README lists direct commands).
-- Live integration test exists (`tests/integration/test_research_agent_live.py`); run with `make test-live` while the two MCP servers are up.
 
 ---
 
@@ -78,7 +112,7 @@ The service is **tokenrouter.com**. It is not api.tokenrouter.io (issues `tr_` k
 Lessons from the first (failing) run, now baked into the script: reasoning models need `max_tokens` ≥ ~500 even for one-word answers or they return empty content; Groq strict `json_schema` requires `additionalProperties: false`; `mistral-large-latest` timed out on every call (free-tier overload) and was moved out of the supervisor chain. Gemini's JSON call is slow (~13 s) — fine for the reviewer role, not for anything in a tight loop.
 
 ### Decisions
-1. **Role chains** (`config/models.yaml`): supervisor `mistral-medium-latest` → `qwen/qwen3.8-max-free` (tokenrouter_free) → `openai/gpt-oss-120b` (groq); specialist `mistral-medium-latest` → `gpt-oss-120b`; reviewer `gemini-3.5-flash` → `qwen/qwen3.8-27b` (groq); cheap `gpt-oss-20b` → `ministral-14b-latest`; embedding `nomic-embed-text` (ollama) → `gemini-embedding-2`. Every chain crosses at least two providers.
+1. **Role chains** (`config/models.yaml`): see the Phase 2 entry for the current chains (Groq removed from specialist/supervisor after the TPM finding).
 2. **Trace viewer: Jaeger all-in-one** (accepts OTLP on 4317/4318, UI on 16686). Langfuse deferred to an optional profile — it needs ClickHouse + MinIO + its own Postgres. `Architecture.md` §2 and `PRD.md` §10 updated.
 3. **`make` is not installed** on this Windows machine. Either `winget install ezwinports.make` or run the Makefile commands directly (README lists them).
 4. **Paid providers stay off.** TokenRouter paid key is in `.env` but unused; Anthropic key empty.

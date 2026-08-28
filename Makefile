@@ -47,6 +47,21 @@ mcp-files:       ## run the files MCP server locally on :7002
 run-subtask:     ## run the research agent on one subtask: make run-subtask T="..."
 	uv run scripts/run_subtask.py "$(T)"
 
+run-task:        ## run a whole task through the graph in-process: make run-task T="..."
+	uv run scripts/run_task.py "$(T)"
+
+migrate:         ## apply tier-2 migrations to DATABASE_URL
+	uv run alembic upgrade head
+
+migration:       ## autogenerate a migration from the ORM models: make migration M="add x"
+	uv run alembic revision --autogenerate -m "$(M)"
+
+api:             ## run the orchestration API on :8000
+	uv run uvicorn apps.api.main:create_app --factory --port 8000 --reload
+
+worker:          ## run the Celery worker (solo pool works on Windows)
+	uv run celery -A packages.orchestrator.worker worker --pool=solo -l info
+
 lint:
 	uv run ruff check .
 

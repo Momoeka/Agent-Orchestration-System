@@ -269,7 +269,9 @@ One interface, `LLMClient.chat(messages, tools, schema, role) → LLMResponse`, 
 | `tokenrouter` *(optional, paid, off)* | TokenRouter `/v1` | `TOKENROUTER_API_KEY` | nothing by default | only if the author opts in |
 | `anthropic` *(optional, paid, off)* | `anthropic` SDK | `ANTHROPIC_API_KEY` | nothing by default | would enable strict tools, `messages.parse`, prompt caching, adaptive thinking + effort |
 
-**Fallback chains.** Each role lists an ordered chain of `(provider, model)`. On 429, 5xx, timeout, or a malformed tool call that fails schema validation twice, the client moves to the next entry for that call and records `llm.call.fallback=true` on the span. A chain that is exhausted raises `RetryableError`. Chains never mix a free provider with a paid one unless the paid provider is explicitly enabled.
+**Fallback chains.** Each role lists an ordered chain of `(provider, model)`. On 429, 5xx, timeout, or a malformed tool call that fails schema validation twice, the client moves to the next entry for that call and records `llm.call.fallback=true` on the span. When *every* entry failed for a retryable reason (all providers rate-limited at once), the chain backs off — 3 s, 8 s, 20 s — and retries the whole chain, then raises `RetryableError`. Chains never mix a free provider with a paid one unless the paid provider is explicitly enabled.
+
+**Free-tier discipline (learned in Phase 2).** Each provider has a `concurrency` limit in `models.yaml`, enforced by a per-provider semaphore, because parallel specialists otherwise burst past free-tier rate limits. A chain entry must be able to take the role's request size: a specialist's tool loop reaches ~10k tokens per call once a document and the schema are in the history, which rules out Groq (8k tokens/minute on the free tier) for specialists — Groq serves only short-prompt roles. Assistant turns are re-sent with the standard fields only (`role`, `content`, `tool_calls`); provider-specific extras such as Groq's `reasoning` are rejected by other providers after a mid-loop fallback.
 
 Role → model mapping in `config/models.yaml`:
 

@@ -36,7 +36,11 @@ class ProviderPool:
         if pc.api_key_env and not api_key:
             raise NonRetryableError(f"{pc.api_key_env} is not set for provider '{provider_id}'")
         client = OpenAICompatProvider(
-            provider_id, base_url, api_key, supports_effort=pc.supports_effort
+            provider_id,
+            base_url,
+            api_key,
+            supports_effort=pc.supports_effort,
+            max_concurrency=int(pc.limits.get("concurrency", 2)),
         )
         self._clients[provider_id] = client
         return client

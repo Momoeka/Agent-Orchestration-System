@@ -4,6 +4,7 @@ from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
+from pydantic.json_schema import SkipJsonSchema
 
 from packages.shared.types.cost import CostEntry
 
@@ -28,15 +29,25 @@ class SubtaskStatus(StrEnum):
 
 
 class Subtask(BaseModel):
-    """One unit of delegated work, as produced by the supervisor's plan."""
+    """One unit of delegated work, as produced by the supervisor's plan.
 
-    id: str
-    description: str
+    ``needs`` is what the planner says this step requires from its predecessors (free text);
+    ``inputs`` is the runtime payload the dispatcher fills (predecessor outputs, reviewer feedback)
+    and is deliberately absent from the planner-facing JSON schema.
+    """
+
+    id: str = Field(description="Short id, e.g. A, B, C")
+    description: str = Field(description="What to do, concretely, in one paragraph")
     specialist: Specialist
-    depends_on: list[str] = Field(default_factory=list)
-    inputs: dict[str, Any] = Field(default_factory=dict)
-    expected_output: str = ""
+    depends_on: list[str] = Field(
+        default_factory=list, description="Ids of subtasks that must finish first"
+    )
+    needs: list[str] = Field(
+        default_factory=list, description="What this step needs from predecessors"
+    )
+    expected_output: str = Field(default="", description="What a good result looks like")
     complexity: Complexity = Complexity.MODERATE
+    inputs: SkipJsonSchema[dict[str, Any]] = Field(default_factory=dict)
 
 
 class SubmittedResult(BaseModel):
@@ -58,6 +69,7 @@ class SubtaskResult(SubmittedResult):
     """``SubmittedResult`` plus what the loop knows: tools used, iterations, cost, errors."""
 
     subtask_id: str
+    attempt: int = 1
     tools_used: list[str] = Field(default_factory=list)
     iterations: int = 0
     cost_entries: list[CostEntry] = Field(default_factory=list)

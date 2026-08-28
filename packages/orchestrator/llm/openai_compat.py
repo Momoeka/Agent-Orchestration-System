@@ -1,12 +1,16 @@
 """One provider class for every OpenAI-compatible endpoint (TokenRouter, Mistral, Groq, Gemini, Ollama).
 
-Normalises: tool calls → `ToolCall`, JSON-schema output (with strict `additionalProperties: false`
-injected — Groq and OpenAI require it), usage → `Usage`, and provider exceptions → the Foreman error
-taxonomy so the fallback chain can decide what to do.
+Normalises: tool calls → `ToolCall`, JSON-schema output (made strict: ``additionalProperties:
+false`` and every property required — what OpenAI and Groq strict modes demand), usage → `Usage`,
+and provider exceptions → the Foreman error taxonomy so the fallback chain can decide what to do.
+
+A per-provider semaphore caps in-flight requests: free tiers rate-limit on bursts, and parallel
+specialists would otherwise fire several calls at once.
 """
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import time
@@ -30,9 +34,11 @@ from packages.shared.types.tools import ToolCall
 
 
 def strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy with ``additionalProperties: false`` on every object node.
+    """Return a copy shaped for strict json_schema modes.
 
-    Strict json_schema modes (OpenAI, Groq) reject schemas without it; Pydantic does not emit it.
+    On every object node: ``additionalProperties: false``, every property listed in ``required``,
+    and ``default`` removed (strict modes reject both optional keys and defaults). Validation of
+    the model's reply still uses the *original* schema, so optional fields stay optional there.
     """
     out = copy.deepcopy(schema)
 
@@ -40,6 +46,10 @@ def strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
         if isinstance(node, dict):
             if node.get("type") == "object" or "properties" in node:
                 node.setdefault("additionalProperties", False)
+                props = node.get("properties")
+                if isinstance(props, dict) and props:
+                    node["required"] = list(props.keys())
+            node.pop("default", None)
             for key in ("properties", "$defs", "definitions"):
                 if isinstance(node.get(key), dict):
                     for child in node[key].values():
@@ -77,9 +87,12 @@ class OpenAICompatProvider:
         *,
         default_timeout_s: float = 60.0,
         supports_effort: bool = False,
+        max_concurrency: int = 2,
     ) -> None:
         self.provider_id = provider_id
         self.supports_effort = supports_effort
+        self.max_concurrency = max(1, max_concurrency)
+        self._semaphore = asyncio.Semaphore(self.max_concurrency)
         self._client = AsyncOpenAI(
             base_url=base_url,
             api_key=api_key or "not-needed",
@@ -123,28 +136,10 @@ class OpenAICompatProvider:
         if timeout_s is not None:
             kwargs["timeout"] = timeout_s
 
-        started = time.perf_counter()
-        try:
-            resp = await self._client.chat.completions.create(**kwargs)
-        except BadRequestError as e:
-            # Some providers accept json_object but not json_schema; degrade once, still validated upstream.
-            if response_schema is not None and "response_format" in str(e).lower():
-                kwargs["response_format"] = {"type": "json_object"}
-                try:
-                    resp = await self._client.chat.completions.create(**kwargs)
-                except APIStatusError as e2:
-                    raise _map_status_error(e2) from e2
-            else:
-                raise NonRetryableError(f"{self.provider_id}/{model}: bad request: {e}") from e
-        except (APITimeoutError, APIConnectionError) as e:
-            raise RetryableError(f"{self.provider_id}/{model}: {type(e).__name__}: {e}") from e
-        except RateLimitError as e:
-            raise RetryableError(f"{self.provider_id}/{model}: rate limited: {e}") from e
-        except (AuthenticationError, PermissionDeniedError, NotFoundError) as e:
-            raise NonRetryableError(f"{self.provider_id}/{model}: {type(e).__name__}: {e}") from e
-        except APIStatusError as e:
-            raise _map_status_error(e, f"{self.provider_id}/{model}") from e
-        latency_ms = int((time.perf_counter() - started) * 1000)
+        async with self._semaphore:
+            started = time.perf_counter()
+            resp = await self._create(kwargs, model, response_schema is not None)
+            latency_ms = int((time.perf_counter() - started) * 1000)
 
         if not resp.choices:
             raise RetryableError(f"{self.provider_id}/{model}: empty choices in response")
@@ -177,6 +172,28 @@ class OpenAICompatProvider:
             latency_ms=latency_ms,
             raw_assistant_message=raw,
         )
+
+    async def _create(self, kwargs: dict[str, Any], model: str, structured: bool) -> Any:
+        label = f"{self.provider_id}/{model}"
+        try:
+            return await self._client.chat.completions.create(**kwargs)
+        except BadRequestError as e:
+            # Some providers accept json_object but not json_schema; degrade once (still validated).
+            if structured and "response_format" in str(e).lower():
+                kwargs["response_format"] = {"type": "json_object"}
+                try:
+                    return await self._client.chat.completions.create(**kwargs)
+                except APIStatusError as e2:
+                    raise _map_status_error(e2, label) from e2
+            raise NonRetryableError(f"{label}: bad request: {e}") from e
+        except (APITimeoutError, APIConnectionError) as e:
+            raise RetryableError(f"{label}: {type(e).__name__}: {e}") from e
+        except RateLimitError as e:
+            raise RetryableError(f"{label}: rate limited: {e}") from e
+        except (AuthenticationError, PermissionDeniedError, NotFoundError) as e:
+            raise NonRetryableError(f"{label}: {type(e).__name__}: {e}") from e
+        except APIStatusError as e:
+            raise _map_status_error(e, label) from e
 
 
 def _map_status_error(e: APIStatusError, label: str = "") -> Exception:

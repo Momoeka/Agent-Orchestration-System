@@ -6,7 +6,10 @@ import pytest
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from packages.orchestrator.tracing.otel import configure_tracing
+from packages.shared.asyncio_compat import use_selector_event_loop_on_windows
 from packages.shared.config import Settings
+
+use_selector_event_loop_on_windows()  # the Postgres-checkpointer integration test needs it
 
 
 @pytest.fixture
