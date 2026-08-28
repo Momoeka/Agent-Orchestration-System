@@ -47,11 +47,10 @@ def decide(
 
 
 c = client()
-st.sidebar.text_input(
-    "Your name (recorded on decisions)",
-    key="operator",
-    value=st.session_state.get("operator", "operator"),
-)
+st.session_state.setdefault("operator", st.query_params.get("operator", "operator"))
+st.sidebar.text_input("Your name (recorded on decisions)", key="operator")
+if st.session_state["operator"] and st.query_params.get("operator") != st.session_state["operator"]:
+    st.query_params["operator"] = st.session_state["operator"]  # survives F5
 show = st.sidebar.selectbox(
     "Show", ["pending", "approved", "modified", "rejected", "taken_over", "expired", "all"], index=0
 )

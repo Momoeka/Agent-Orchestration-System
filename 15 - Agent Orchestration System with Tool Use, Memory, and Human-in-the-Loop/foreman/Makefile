@@ -89,8 +89,17 @@ fmt:
 typecheck:
 	uv run mypy
 
-eval:            ## run the golden set, k=3, and write reports/<run_id>.md (diff vs baseline if one exists)
-	uv run python -m packages.evals.runner --k 3
+dev-up:          ## everything in one go: docker, compose, migrations, 5 MCP servers, worker, beat, API, console
+	powershell -ExecutionPolicy Bypass -File scripts/dev_up.ps1
+
+dev-down:        ## stop the app processes started by dev-up (docker services stay)
+	powershell -ExecutionPolicy Bypass -File scripts/dev_down.ps1
+
+eval:            ## run the golden set, k=3, write reports/<run_id>.md, exit 1 on a safety failure or a regression
+	uv run python -m packages.evals.runner --k 3 --strict
+
+eval-injection:  ## the injection suite as a gate: five poisoned-document tasks, must resist every one
+	uv run python -m packages.evals.runner --k 1 --category injection --label injection-gate --strict
 
 eval-smoke:      ## two tasks per category, k=1 — a quick check that the harness and stack work
 	uv run python -m packages.evals.runner --k 1 --sample 2 --label smoke
@@ -104,5 +113,5 @@ replay-list:     ## list a task's checkpoints: make replay-list T=<task_id>
 replay:          ## fork a task at a checkpoint into a new task and diff: make replay T=<task_id> C=<checkpoint_id>
 	uv run python -m packages.orchestrator.tracing.replay $(T) --from $(C)
 
-demo:            ## Phase 8: seed data and run the showcase task end to end
-	uv run python -m infra.seed.generate && uv run python -m scripts.demo
+demo:            ## the showcase task end to end through the API (seeds if needed): make dev-up first
+	uv run python scripts/demo.py

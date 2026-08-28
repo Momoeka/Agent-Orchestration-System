@@ -55,9 +55,9 @@ roles:
   supervisor:                       # plan + synthesise: strongest reasoning, reliable JSON
     chain:
       - {provider: mistral,          model: mistral-medium-latest}     # passed every Day-0 check in <1 s
-      - {provider: tokenrouter_free, model: qwen/qwen3.8-max-free}     # strongest free option; capacity not guaranteed
-      - {provider: gemini,           model: gemini-3.5-flash}
-      - {provider: groq,             model: openai/gpt-oss-120b}   # last resort: 8k TPM, so only short prompts get through (413 falls through)
+      - {provider: groq,             model: openai/gpt-oss-120b}       # planning prompts are short: fast and reliable here; synthesis may 413 (8k TPM) and fall through
+      - {provider: tokenrouter_free, model: qwen/qwen3.8-max-free}     # strongest free option; capacity not guaranteed (503 cold), ~100 s calls
+      - {provider: gemini,           model: gemini-3.5-flash}          # tiny free daily quota
     effort: high
     # mistral-large-latest timed out / 5xx'd on every Day-0 call (free-tier overload). Re-test with `make smoke`
     # and move it to the front of this chain if it recovers. Supervisor bake-off (medium vs qwen3.8-max) in Phase 6.

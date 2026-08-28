@@ -11,7 +11,7 @@ from packages.orchestrator.agents.memory_extractor.agent import build_memory_ext
 from packages.orchestrator.gate.decide import Gate
 from packages.orchestrator.hitl.escalation import EscalationPolicy
 from packages.orchestrator.llm.client import ChatLLM
-from packages.orchestrator.loop.budgets import Budget
+from packages.orchestrator.loop.budgets import Budget, BudgetConfig
 from packages.orchestrator.memory.long_term import LongTermMemory
 from packages.orchestrator.memory.persistent import ApprovalStore, TaskStore
 from packages.orchestrator.memory.working import InMemoryWorkingMemory, WorkingMemory
@@ -27,7 +27,14 @@ class GraphConfig:
     review_escalate_score: int = 3
     max_retries: int = 2
     specialist_budget: Budget = field(default_factory=Budget)
+    budgets: BudgetConfig | None = None  # per-agent overrides (config/budgets.yaml)
     llm_timeout_s: float = 120.0
+
+    def budget_for(self, agent_name: str) -> Budget:
+        if self.budgets is not None and agent_name in self.budgets.agents:
+            return self.budgets.for_agent(agent_name)
+        return self.specialist_budget
+
     memory_recall_k: int = 5
     memory_recall_keep: int = 3
     memory_recall_max_tokens: int = 600

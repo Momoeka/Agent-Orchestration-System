@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     # --- observability + evals (Architecture.md 9, Phases.md 6) ---
     jaeger_query_url: str = "http://localhost:16686"
     evals_reports_dir: Path = Path("packages/evals/reports")
+    budgets_config_path: Path = Path("config/budgets.yaml")
 
     # --- ops ---
     api_base_url: str = "http://localhost:8000"  # what the operator UI talks to

@@ -25,3 +25,6 @@ node_modules/
 
 # celery beat state
 celerybeat-schedule*
+
+# dev-up process ids and logs
+.run/

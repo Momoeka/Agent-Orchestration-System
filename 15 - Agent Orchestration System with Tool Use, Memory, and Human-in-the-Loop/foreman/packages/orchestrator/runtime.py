@@ -21,7 +21,7 @@ from packages.orchestrator.llm.client import ChatLLM
 from packages.orchestrator.llm.embeddings import EmbeddingChain
 from packages.orchestrator.llm.providers import ProviderPool
 from packages.orchestrator.llm.roles import load_models_config
-from packages.orchestrator.loop.budgets import Budget
+from packages.orchestrator.loop.budgets import Budget, BudgetConfig
 from packages.orchestrator.memory.db import make_engine, make_session_factory
 from packages.orchestrator.memory.long_term import LongTermMemory
 from packages.orchestrator.memory.persistent import ApprovalStore, OutboxRepository, TaskStore
@@ -65,6 +65,11 @@ def make_approvals(settings: Settings) -> ApprovalStore:
 
 def make_outbox(settings: Settings) -> OutboxRepository:
     return OutboxRepository(_session_factory(settings))
+
+
+def make_budgets(settings: Settings) -> BudgetConfig | None:
+    path = settings.budgets_config_path
+    return BudgetConfig.load(path) if path.exists() else None
 
 
 def make_policy(settings: Settings) -> EscalationPolicy:
@@ -171,5 +176,6 @@ async def build_runtime(
                 max_iterations=settings.max_iterations,
                 max_cost_usd=settings.default_task_budget_usd,
             ),
+            budgets=make_budgets(settings),
         ),
     )

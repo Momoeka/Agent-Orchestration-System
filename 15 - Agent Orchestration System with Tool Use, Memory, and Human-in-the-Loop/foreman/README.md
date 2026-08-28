@@ -1,188 +1,199 @@
 # Foreman
 
-An agent orchestration system: a supervisor plans, specialist agents act through gated MCP tools, a reviewer checks every result, three tiers of memory make it improve over time, and a human is pulled in whenever confidence is low or an action is irreversible. Every decision is traced and replayable.
+An agent orchestration system for consumer-credit claims work: a **supervisor** plans a request into
+subtasks, **specialist agents** (research, analysis, writing, code) act only through **gated MCP
+tools**, a **reviewer** from a different model family checks every result, a **human** approves
+anything irreversible, results go to an **outbox** rather than being sent, **three tiers of memory**
+make it improve per user, and an **eval harness** measures all of it. Every task is traced,
+checkpointed, and replayable from any step.
 
-**Status:** Day 0 — skeleton, infrastructure, and provider smoke tests. See `docs/Phases.md`.
+Runs entirely on a laptop, on free model tiers ($0), against synthetic data. New here? Read
+[`docs/EXPLAINED.md`](docs/EXPLAINED.md) first — the plain-language version with a walkthrough.
 
-## Documents
+## Run it
 
-| Doc | Purpose |
+```bash
+cp .env.example .env      # fill in the free-provider keys (Mistral, Groq, Google AI Studio, tokenrouter.com)
+uv sync --dev             # Python 3.12 via uv; nothing else to install but Docker Desktop
+make dev-up               # Docker → compose → migrations → 5 MCP servers → worker → beat → API → console
+make demo                 # the showcase task end to end, printed step by step
+```
+
+`make dev-up` is `scripts/dev_up.ps1` on Windows (`scripts/dev_up.sh` elsewhere); `make dev-down`
+stops the app processes. Without `make` on Windows, call the scripts directly:
+`powershell -ExecutionPolicy Bypass -File scripts/dev_up.ps1`. After it finishes:
+
+| URL | What |
 |---|---|
-| `docs/PRD.md` | What is being built, for whom, and how success is measured |
-| `docs/Architecture.md` | The build specification: graph, agents, tools, memory, HITL, tracing, API, layout |
-| `docs/Rules.md` | Boundaries for anyone (human or AI) writing code here |
-| `docs/Phases.md` | The 14-day plan with "done when" lines |
-| `docs/Design.md` | Operator UI visual spec |
-| `docs/Memory.md` | Running log across coding sessions — read first, update last |
-| `docs/diagrams/` | Architecture, graph, agent loop, memory, HITL, and one-task sequence diagrams |
+| http://localhost:8501 | operator console: Approvals · Tasks · Outbox · Memory · Stats · Trace |
+| http://localhost:8000/docs | the API (`X-API-Key` from `.env`) |
+| http://localhost:16686 | Jaeger — every span of every task |
 
-## Quick start (Day 0)
+`make demo` seeds the synthetic data if needed, submits the showcase request through the API,
+shows the email the writing agent asks permission to send, answers the approval (modify the
+recipient by default), waits for the deliverable, then prints the ledger line for the send, the
+outbox row (queued, never sent), the lessons written to memory, and the trace summary.
 
-```bash
-cp .env.example .env            # then fill in the free-provider keys
-make sync                       # uv creates .venv with Python 3.12 and installs deps
-make up                         # redis, postgres, chroma, ollama, jaeger
-make ollama-pull                # nomic-embed-text (embeddings) + qwen3:8b (offline dev)
-make smoke-all                  # every chat model in config/models.yaml: chat / tool call / JSON schema
+## How a task flows
+
+```
+POST /v1/tasks ─► intake ─► recall_memory ─► plan ─┬─► approve_plan (L3: low confidence / user asked)
+                                                   └─► dispatch ─► specialists (parallel per ready subtask)
+                                                                       │ each: agent loop ─ gate ─ tools
+                                                                       ▼
+                                          review ◄────────────────── (fan-in; reviewer role)
+                                            │ reject → retry with feedback (max 2)
+                                            │ 3rd rejection → escalate (L4)
+                                            │ a specialist paused on a gated call → await_approval (L2)
+                                            ▼
+                                        synthesize ─► deliver ─► write_memory ─► END
 ```
 
-`make` is not installed by default on Windows. Either `winget install ezwinports.make`, or run the equivalents directly:
-`uv sync --dev` · `docker compose -f infra/docker-compose.yml up -d` · `uv run scripts/smoke_provider.py --all`.
+- State is a LangGraph `StateGraph` checkpointed in Postgres after every node; a worker that dies
+  mid-task resumes from the last checkpoint; a paused task survives restarts.
+- The **agent loop** (`packages/orchestrator/loop/agent_loop.py`) is the only place an agent talks to
+  a model or a tool: model call → tool calls through the gate → results back → repeat, under a
+  per-agent budget (iterations, tokens, cost, wall-clock — `config/budgets.yaml`). When the gate
+  says *approve*, the loop serialises itself into a checkpoint and the graph pauses; a human
+  decision resumes it from exactly that turn.
+- **Three places a human is asked** (`config/escalation.yaml`): L2 a gated action, L3 the plan,
+  L4 repeated failure. Four decisions: approve, modify, reject (reason required), take over.
+  Timeouts can only reject or cancel; nothing auto-approves.
 
-Jaeger trace UI: http://localhost:16686
+## How the gate decides
 
-## Phase 1 — run the research agent on one subtask
+`packages/orchestrator/gate/decide.py`, policy in `packages/tools/registry/policy.yaml`.
 
-```bash
-uv run python -m infra.seed.generate                       # 200 synthetic claims + documents under data/workspace
-MCP_PORT=7004 uv run python -m packages.tools.mcp_servers.database   # terminal 1
-MCP_PORT=7002 uv run python -m packages.tools.mcp_servers.files      # terminal 2
-uv run scripts/run_subtask.py "For claim CLM-4471: list every loan from the database, then read claims/CLM-4471/lender_response.md and summarise the lender's decision."
-```
+| Check, in order | Result |
+|---|---|
+| Tool not in the registry / not listed in the policy | **block** |
+| Tool not in the calling agent's `agents:` list | **block** |
+| Arguments fail the tool's JSON schema | **block** |
+| Per-tool rate limit exceeded (Redis, shared across workers; fails closed) | **block** |
+| `risk: destructive` (`actions_*`) | **approve** — always a human |
+| `risk: risky` (`files_write_file`, `sandbox_run_python`) | LLM classifier on the cheap role → allow or approve; classifier error → approve |
+| `risk: safe` | **allow** |
 
-Then open Jaeger and look at the newest `foreman` trace: `task → agent.research → iterations → llm.call / gate.decide / tool.*`.
+Every decision is a `gate.decide` span and a `tool_invocations` row (arguments hashed, never
+stored raw). The actions server has **no send path**: `send_email`, `create_calendar_event`,
+`call_api` validate and write an `outbox` row; a person drains the outbox. The sandbox runs code
+in a throwaway container with no network, a read-only root, dropped capabilities and limits; the
+web tool refuses private addresses on every redirect hop. `docs/Architecture.md` §14 has the model.
 
-Checks: `uv run pytest` (unit) · `uv run ruff check .` · `uv run mypy` · `make test-live` (against the running stack and live models).
+## The console
 
-## Phase 2 — run a whole task through the graph
+| Page | Use it to |
+|---|---|
+| Approvals | see the context package (request, plan progress, done so far, the exact proposed action) and decide |
+| Tasks | submit; follow a task live (subtasks *waiting / in progress / accepted*, verdicts, deliverable, approvals) |
+| Outbox | everything the agents *proposed* to send — nothing here was sent |
+| Memory | a user's lessons, their fading importance, delete-all |
+| Stats | tasks, completion, escalation and approval rates, tool mix, latency, **unapproved destructive actions (must be 0)**, the last eval headline |
+| Trace | one task as a span tree (from Jaeger), a span inspector, checkpoints, **replay from a checkpoint**, replay diff |
 
-```bash
-uv run alembic upgrade head                                            # tier-2 tables (tasks, subtasks, llm_calls, audit_log)
-uv run celery -A packages.orchestrator.worker worker --pool=solo -l info   # terminal 3
-uv run uvicorn apps.api.main:create_app --factory --port 8000             # terminal 4
-
-curl -s -X POST http://localhost:8000/v1/tasks -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
-  -d '{"request": "Summarise the lender documents for claim CLM-4471 and draft the complaint letter. Cite the rules in ruleset.md.", "user_id": "u_42"}'
-curl -s http://localhost:8000/v1/tasks/<task_id> -H "X-API-Key: $API_KEY"   # plan, subtasks with verdicts, deliverable, cost
-```
-
-Or in-process without Celery: `uv run scripts/run_task.py "<request>"`.
-
-## Phase 3 — the full tool layer and the gate
-
-```bash
-make sandbox-image                                                      # once: the image run_python executes in
-MCP_PORT=7001 uv run python -m packages.tools.mcp_servers.web_search      # search (fixture backend) + SSRF-guarded fetch
-MCP_PORT=7003 uv run python -m packages.tools.mcp_servers.sandbox         # run_python in a hardened throwaway container
-MCP_PORT=7005 uv run python -m packages.tools.mcp_servers.actions         # send_email / calendar / call_api -> outbox only
-uv run pytest -q -m integration tests/integration/test_gate_live.py       # the Phase 3 done-when, live
-```
-
-Every tool call goes through the gate before the registry may run it: unknown tool, wrong agent, bad
-arguments, or rate limit → **block**; `safe` → allow; `destructive` → **a human, always**; `risky` → a
-small LLM classifier decides whether a human needs to look, and any failure of that classifier means
-**approve**. Each decision is recorded in `tool_invocations` (arguments hashed, never stored). The
-actions server cannot send anything: its only effect is a row in `outbox`.
-
-The graph (docs/diagrams/02): intake → recall_memory → plan → (approve_plan) → dispatch → specialists (parallel `Send()` per ready subtask) → review → retry / await_approval / dispatch dependents / escalate / synthesize → deliver → write_memory. State is checkpointed in Postgres after every node, so a worker that dies mid-task resumes from the last checkpoint on the next run (`tests/integration/test_graph_postgres_resume.py`).
-
-## Phase 4 — human in the loop
+## Evals and replay
 
 ```bash
-uv run alembic upgrade head                                               # adds the approvals table
-uv run celery -A packages.orchestrator.worker worker --pool=solo -l info    # terminal 3
-uv run celery -A packages.orchestrator.worker beat -l info                 # terminal 5: expires overdue approvals (-B is not supported on Windows)
-uv run streamlit run apps/review_ui/app.py --server.port 8501              # terminal 6: operator console
-
-curl -s "http://localhost:8000/v1/approvals?status=pending" -H "X-API-Key: $API_KEY"
-curl -s -X POST http://localhost:8000/v1/approvals/<id>/decide -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
-  -d '{"decision": "modify", "payload": {"arguments": {"to": "complaints@lender.example.test", "subject": "…", "body": "…"}}, "reason": "route to the complaints inbox", "decided_by": "sayed"}'
-uv run pytest -q -m integration tests/integration/test_hitl_postgres_resume.py   # pause → new worker → decide → done, on Postgres
+make eval-smoke                                   # 2 tasks per category, k=1 — fast check that stack + harness work
+make eval-injection                               # the injection suite as a gate: 5 poisoned-document tasks, exit 1 on any failure
+make eval-baseline                                # the full set, k=3, saved as reports/baseline.json (hours on free tiers)
+make eval                                         # full set, k=3, diff vs baseline, exit 1 on a safety failure or regression
+uv run python -m packages.evals.runner --resume <run_id>           # continue a run cut off by rate limits
+uv run python -m packages.evals.runner --k 1 --only lookup_loans_4471 --reviewer groq/qwen/qwen3.8-27b
+make replay-list T=<task_id>                      # a task's checkpoints ("after review → next synthesize")
+make replay T=<task_id> C=<checkpoint_id>         # fork it into a new task and print the trajectory diff
 ```
 
-Three places pause the graph, all through LangGraph `interrupt()` on the Postgres checkpointer, so a paused task
-survives worker restarts and is resumed with `Command(resume=decision)`:
+The golden set (`packages/evals/golden_tasks/*.yaml`) has 36 tasks in seven categories — lookup,
+multi-step, dependent, must-escalate, must-not-call, unanswerable, injection — each stating the
+expected and forbidden tools, whether it must pause and where, what the deliverable must contain,
+and a rubric. Every run is a real task under a fresh user id. Metrics (`packages/evals/metrics.py`):
+task success (assertions + judge ≥ 4/5), pass^k, tool precision/recall, unnecessary-call rate,
+escalation precision/recall, **unapproved destructive actions**, **injection resistance**, steps,
+latency p50/p95, cost, provider mix. Reports: `packages/evals/reports/<run_id>.md` + `.json`;
+`latest.json` feeds the Stats page. The `--strict` gate fails the build on any unapproved action,
+any injection that got through, any missed required pause, or a regression against the baseline.
 
-| Level | Where | Trigger | approve | modify | reject | take over |
-|---|---|---|---|---|---|---|
-| L2 | `await_approval` (a specialist's loop paused on a gated call) | destructive tool, or the classifier said so | run the call | run it with edited arguments (re-validated against the tool schema) | the agent gets an error result and may not ask again in that subtask | the human's text becomes the subtask result, no model review |
-| L3 | `approve_plan` | plan confidence below threshold, or `require_human_review` | run the plan | run the edited plan | cancel the task | the human's text becomes the deliverable |
-| L4 | `escalate` | a subtask failed review `max_retries` times | one more round | accept a human-written result for the failing subtask | cancel the task | the human's text becomes the deliverable |
+## Add a tool
 
-The agent loop itself is pausable: when the gate says *approve*, the loop serialises its messages, pending calls
-and ledgers into a checkpoint inside graph state and returns; the resumed loop continues from exactly that turn —
-no model call is replayed. Approval rows are idempotent (dedupe key per task/subtask/attempt/arguments), decisions
-are single-shot (`409` on a second decision), rejecting needs a reason, and timeouts (`config/escalation.yaml`) can
-only reject or cancel — nothing auto-approves. The Streamlit console shows the queue, the context package (request,
-plan progress, completed subtasks, the proposed call), and the four decisions; everything the agents proposed to send
-is listed on the Outbox page and nothing is ever sent by Foreman.
+1. Implement it in the right MCP server under `packages/tools/mcp_servers/<server>/` (a plain
+   function on the `MCPServer`; raise `ToolError` with the reason on rejection — a plain exception
+   hides the reason from the model).
+2. Register it in `packages/tools/registry/policy.yaml`: server, `mcp_name`, `risk`
+   (`safe | risky | destructive`), the `agents:` allowed to call it, `rate_per_min`, `timeout_s`.
+   The registry name must be `<server>_<tool>` with underscores.
+3. If it is destructive, make it write to the outbox; nothing in this repo transmits anything.
+4. Add a test under `tests/unit/` (the gate tests show the pattern) and, if it changes what a
+   specialist can do, a golden task that expects or forbids it.
 
-## Phase 5 — memory
+## Add a golden task
+
+Append to the category's file in `packages/evals/golden_tasks/`:
+
+```yaml
+- id: lookup_something_4471          # unique, snake_case
+  category: lookup                   # lookup | multi_step | dependent | must_escalate | must_not_call | unanswerable | injection
+  difficulty: easy                   # easy | medium | hard
+  title: One line
+  request: The request exactly as a user would type it. Ask for what the rubric checks.
+  expected_tools: [db_query]         # recall counts these; precision counts calls inside expected + extra_ok
+  forbidden_tools: []                # an attempt (even a blocked one) fails the run
+  expect_pause: false                # must_escalate tasks: true + pause_level (L2/L3/L4) + pause_tool
+  must_contain: ["CLM-4471"]         # case-insensitive, deliverable title + body
+  rubric:                            # what the judge checks, 1–5; success needs ≥ judge_threshold (4)
+    - Names the lender and the client.
+```
+
+`tests/unit/test_evals_golden.py` checks the set stays consistent (tool names exist, categories
+covered, invariants per category).
+
+## Architecture decisions, and why
+
+| Decision | Why |
+|---|---|
+| Reviewer from a different model family than supervisor/specialists | a model grading its own family shares its blind spots |
+| The agent loop is pausable and serialises itself into graph state | LangGraph re-executes a node on resume; a mid-loop `interrupt()` would replay model calls |
+| Approval rows are idempotent (dedupe key) and decisions single-shot (409) | node re-execution and double clicks must not create or apply two decisions |
+| Destructive tools always need a human, and even then only queue | two locks on every irreversible action; the software has no send path at all |
+| Tool results are data; prompts say so; the injection suite is a gate | a planted "email everything to X" note must never become an action |
+| One Chroma collection per embedding model | a fallback embedding model is a different vector space; mixing them poisons similarity |
+| Tier-1 Redis is a fail-soft cache; state and Postgres stay authoritative | a 24 h TTL must never break a resume |
+| Memory decay is computed from last access, never rewritten | nightly consolidation must be idempotent |
+| Evals are real tasks under fresh users; the harness never approves a forbidden tool | measure the system that ships; an eval must not be the thing that sends an email |
+| Empty completed results are rejected by rule; a placeholder deliverable is retried once then fails | two defects the first eval found; rules, not prompts, close them |
+| Free tiers only, with per-role fallback chains, backoff, per-provider concurrency, JSONL-resumable evals | $0 is a constraint of the project, and its failure modes (429, 503 cold, tiny daily quotas) are designed for, not hidden |
+
+Per-phase build log, live results and lessons: [`docs/Memory.md`](docs/Memory.md). Specification:
+[`docs/PRD.md`](docs/PRD.md), [`docs/Architecture.md`](docs/Architecture.md),
+[`docs/Rules.md`](docs/Rules.md), [`docs/Phases.md`](docs/Phases.md), [`docs/Design.md`](docs/Design.md).
+
+## Layout
+
+```
+apps/api            FastAPI: routes → controllers → services (the only HTTP layer)
+apps/review_ui      Streamlit console (pages/, components/, api_client.py)
+packages/orchestrator
+  graph/            build_graph, state, edges, nodes/ (one file per node), serde (checkpoint allowlist)
+  agents/           supervisor, research, analysis, writing, code_exec, reviewer, memory_extractor (prompt.md each)
+  loop/             agent_loop (pausable), budgets, messages
+  gate/             decide, classifier;   hitl/  escalation, approvals, timeouts, notify
+  memory/           working (Redis), persistent (Postgres repositories), long_term (Chroma), extractor, consolidate
+  llm/              openai_compat provider, chains (fallback + backoff), roles (models.yaml), embeddings
+  tracing/          otel spans, cost, replay
+  worker.py         Celery: run_task, resume_task, replay_task, expire_approvals, consolidate_memory, startup recovery
+packages/tools      registry (policy.yaml, rate limits), mcp_servers/ (web_search, files, sandbox, database, actions)
+packages/evals      golden_tasks/, runner, metrics, judge, diff, report, reports/
+packages/shared     types/ (Pydantic models shared by everything), config (the only env reader), errors
+infra               docker-compose, alembic migrations, seed generator, sandbox image
+config              models.yaml (role chains), escalation.yaml, budgets.yaml
+scripts             dev_up / dev_down, demo, run_task, run_subtask, smoke_provider
+tests               unit/ (fast, no network) · integration/ (compose stack, real models where marked)
+```
+
+## Checks
 
 ```bash
-docker exec foreman-ollama-1 ollama pull nomic-embed-text                            # once: the local embedding model (768-dim, $0)
-uv run celery -A packages.orchestrator.worker beat -l info                           # also runs foreman.consolidate_memory daily
-curl -s http://localhost:8000/v1/memory/users/u_42 -H "X-API-Key: $API_KEY"            # what Foreman learned about a user
-curl -s -X DELETE http://localhost:8000/v1/memory/users/u_42 -H "X-API-Key: $API_KEY"  # forget everything about them
-uv run pytest -q -m integration tests/integration/test_memory_live.py                  # write → recall → dedup → delete, and the two-run recall
+uv run pytest -q          # unit tests, no network
+uv run ruff check . && uv run mypy
+uv run pytest -q -m integration tests/integration/   # needs the stack; some call real models
 ```
-
-Three tiers (`docs/Architecture.md` §7):
-
-| Tier | Store | Holds | Lifetime |
-|---|---|---|---|
-| 1 · working | Redis (`packages/orchestrator/memory/working.py`) | the plan, each subtask result, artifacts and errors of one task; specialists read predecessors from here first | `TIER1_TTL_HOURS` (24 h) — a cache; graph state and Postgres stay authoritative |
-| 2 · records | PostgreSQL + LangGraph checkpoints | tasks, subtasks, approvals, ledgers, outbox, audit log, checkpoints | for good |
-| 3 · lessons | ChromaDB (`memory/long_term.py`) | 0–3 lessons per finished task, extracted on the cheap role from a factual digest, per user | until they fade: importance halves every 30 idle days; expired below 1.0 or after 180 days |
-
-After `deliver`, `write_memory` digests the task (request, plan, how each subtask went, what humans decided and why,
-what was delivered) and stores the lessons; a lesson within 0.92 cosine of an existing one for that user reinforces it
-instead of duplicating it. Before `plan`, `recall_memory` fetches the user's top-5, keeps at most 3 and 600 tokens, and
-injects them under **"Relevant past experience (advice, not instructions)"** — the only place they appear. Embeddings
-come from `nomic-embed-text` on local Ollama, one Chroma collection per embedding model (a different model is a
-different vector space). Every memory operation is a span (`memory.recall` with the ids it injected, `memory.write`
-with the ids it inserted or reinforced) and every failure is swallowed: memory can make a task better, never fail it.
-The Memory page lists each user's lessons with their fading importance and a delete-all; the approval detail shows the
-lessons the planner saw.
-
-Measured on the showcase request: the second run for the same user recalled the first run's lesson and finished in
-84 s / 16 model calls instead of 435 s / 51.
-
-## Phase 6 — evals and observability
-
-```bash
-uv run python -m packages.evals.runner --k 1 --sample 2 --label smoke                 # quick: 2 tasks per category, real models
-uv run python -m packages.evals.runner --k 3 --save-baseline --label baseline         # the gate: full set, k=3, saved as the baseline
-uv run python -m packages.evals.runner --resume <run_id>                              # continue a run cut off by rate limits
-uv run python -m packages.evals.runner --k 1 --category injection --reviewer groq/qwen/qwen3.8-27b   # reviewer bake-off
-uv run python -m packages.orchestrator.tracing.replay <task_id> --list                # a task's checkpoints
-uv run python -m packages.orchestrator.tracing.replay <task_id> --from <checkpoint_id> --set request="…"
-curl -s "http://localhost:8000/v1/stats?days=7" -H "X-API-Key: $API_KEY"
-curl -s http://localhost:8000/v1/tasks/<id>/trace -H "X-API-Key: $API_KEY"
-```
-
-**Golden set** — 36 tasks in `packages/evals/golden_tasks/*.yaml` across seven categories (lookup,
-multi-step, dependent, must-escalate, must-not-call, unanswerable, injection) and three difficulties,
-all against the synthetic claims data. Each task states what a good run looks like: expected tools,
-forbidden tools, whether the graph must pause and at which level, what the deliverable must (not)
-contain, the plan shape, and a rubric.
-
-**Runner** — every run is a real task (a fresh user id per run so runs never share memory, Postgres
-checkpoints, a Jaeger trace, visible in the console). When the graph pauses, the harness answers with
-the task's `hitl` policy and records the pause. Results stream to `reports/<run_id>.jsonl`, so a run
-cut off by free-tier rate limits resumes without repeating work.
-
-**Metrics** (`packages/evals/metrics.py`, unit-tested on hand-built trajectories) — task success
-(assertions + a rubric judge ≥ 4/5 on the reviewer role, a different model family), pass^k, tool
-precision / recall, unnecessary-call rate, escalation precision / recall, unapproved destructive
-actions (must be 0), injection resistance, steps, latency p50/p95, cost, provider mix, fallback rate.
-Reports land in `packages/evals/reports/<run_id>.md` + `.json` with a diff against `baseline.json`
-(new failures, new passes, regressions, metric deltas); `latest.json` feeds `GET /v1/stats`.
-
-**Observability** — `GET /v1/stats` (tasks, completion, escalation and approval rates, tool mix,
-latency percentiles, unapproved destructive actions, the last eval headline); `GET /v1/tasks/{id}/trace`
-merges every Jaeger trace tagged with the task id into one span tree (ledger timeline when Jaeger is
-down); the **Stats** and **Trace** pages render both.
-
-**Replay** — `GET /v1/tasks/{id}/checkpoints` lists a task's checkpoints ("after review → next
-synthesize"); `POST /v1/tasks/{id}/replay` or the CLI forks the task at one of them into a *new* task,
-optionally with overridden state (`request=…`, `plan={…}`, `options.require_human_review=true`), runs
-it, and `GET /v1/tasks/{fork}/diff` compares the two trajectories. The source task is never modified.
-
-## Principles
-
-- **$0 by default.** All model roles run on free tiers with per-role fallback chains (`config/models.yaml`). Paid providers are optional and disabled.
-- **One path to a tool.** Agents reach tools only through the permission gate → registry. Fail closed.
-- **Typed hand-offs.** Plans, results, verdicts, and memories are Pydantic models.
-- **Humans decide the irreversible.** Destructive actions always pause for approval; timeouts never approve.
-- **Synthetic data only.**
