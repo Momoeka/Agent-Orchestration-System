@@ -113,6 +113,10 @@ async def test_forbidden_attempt_fails_the_run_and_the_judge_never_runs(tmp_path
         x.startswith("forbidden_tools_not_attempted") for x in r.failure_reasons
     )
     assert judge.calls == 0  # no rubric on this task
+    assert (
+        sc.registry.invoked == []
+    )  # the harness rejected the forbidden send instead of approving it
+    assert [(p.tool, p.decision) for p in r.trajectory.pauses] == [("actions_send_email", "reject")]
 
 
 async def test_report_assembly_jsonl_resume_and_markdown(tmp_path: Path) -> None:

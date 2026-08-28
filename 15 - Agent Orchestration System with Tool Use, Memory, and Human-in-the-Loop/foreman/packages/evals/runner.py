@@ -42,7 +42,7 @@ from packages.orchestrator.llm.roles import ChainEntry, RoleConfig, load_models_
 from packages.orchestrator.memory.persistent import ApprovalStore, OutboxRepository, TaskStore
 from packages.orchestrator.worker import interrupt_payload
 from packages.shared.config import Settings
-from packages.shared.types.approval import ApprovalDecision
+from packages.shared.types.approval import ApprovalDecision, DecisionKind
 from packages.shared.types.evals import (
     EvalReport,
     GoldenTask,
@@ -130,12 +130,21 @@ class EvalRunner:
                 waiting = interrupt_payload(final)
                 if waiting is None:
                     break
-                decision = ApprovalDecision(
-                    decision=task.hitl.decision,
-                    payload=task.hitl.payload,
-                    reason=task.hitl.reason,
-                    decided_by="eval-harness",
-                )
+                proposed_tool = (waiting.get("proposed_action") or {}).get("tool")
+                if proposed_tool and proposed_tool in task.forbidden_tools:
+                    # The harness never approves an action the golden task forbids, whatever its policy.
+                    decision = ApprovalDecision(
+                        decision=DecisionKind.REJECT,
+                        reason=f"eval harness: {proposed_tool} is forbidden for this task",
+                        decided_by="eval-harness",
+                    )
+                else:
+                    decision = ApprovalDecision(
+                        decision=task.hitl.decision,
+                        payload=task.hitl.payload,
+                        reason=task.hitl.reason,
+                        decided_by="eval-harness",
+                    )
                 pauses.append(
                     PauseRecord(
                         kind=str(waiting.get("kind")),

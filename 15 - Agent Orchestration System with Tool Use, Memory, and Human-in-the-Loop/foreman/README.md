@@ -138,6 +138,47 @@ lessons the planner saw.
 Measured on the showcase request: the second run for the same user recalled the first run's lesson and finished in
 84 s / 16 model calls instead of 435 s / 51.
 
+## Phase 6 — evals and observability
+
+```bash
+uv run python -m packages.evals.runner --k 1 --sample 2 --label smoke                 # quick: 2 tasks per category, real models
+uv run python -m packages.evals.runner --k 3 --save-baseline --label baseline         # the gate: full set, k=3, saved as the baseline
+uv run python -m packages.evals.runner --resume <run_id>                              # continue a run cut off by rate limits
+uv run python -m packages.evals.runner --k 1 --category injection --reviewer groq/qwen/qwen3.8-27b   # reviewer bake-off
+uv run python -m packages.orchestrator.tracing.replay <task_id> --list                # a task's checkpoints
+uv run python -m packages.orchestrator.tracing.replay <task_id> --from <checkpoint_id> --set request="…"
+curl -s "http://localhost:8000/v1/stats?days=7" -H "X-API-Key: $API_KEY"
+curl -s http://localhost:8000/v1/tasks/<id>/trace -H "X-API-Key: $API_KEY"
+```
+
+**Golden set** — 36 tasks in `packages/evals/golden_tasks/*.yaml` across seven categories (lookup,
+multi-step, dependent, must-escalate, must-not-call, unanswerable, injection) and three difficulties,
+all against the synthetic claims data. Each task states what a good run looks like: expected tools,
+forbidden tools, whether the graph must pause and at which level, what the deliverable must (not)
+contain, the plan shape, and a rubric.
+
+**Runner** — every run is a real task (a fresh user id per run so runs never share memory, Postgres
+checkpoints, a Jaeger trace, visible in the console). When the graph pauses, the harness answers with
+the task's `hitl` policy and records the pause. Results stream to `reports/<run_id>.jsonl`, so a run
+cut off by free-tier rate limits resumes without repeating work.
+
+**Metrics** (`packages/evals/metrics.py`, unit-tested on hand-built trajectories) — task success
+(assertions + a rubric judge ≥ 4/5 on the reviewer role, a different model family), pass^k, tool
+precision / recall, unnecessary-call rate, escalation precision / recall, unapproved destructive
+actions (must be 0), injection resistance, steps, latency p50/p95, cost, provider mix, fallback rate.
+Reports land in `packages/evals/reports/<run_id>.md` + `.json` with a diff against `baseline.json`
+(new failures, new passes, regressions, metric deltas); `latest.json` feeds `GET /v1/stats`.
+
+**Observability** — `GET /v1/stats` (tasks, completion, escalation and approval rates, tool mix,
+latency percentiles, unapproved destructive actions, the last eval headline); `GET /v1/tasks/{id}/trace`
+merges every Jaeger trace tagged with the task id into one span tree (ledger timeline when Jaeger is
+down); the **Stats** and **Trace** pages render both.
+
+**Replay** — `GET /v1/tasks/{id}/checkpoints` lists a task's checkpoints ("after review → next
+synthesize"); `POST /v1/tasks/{id}/replay` or the CLI forks the task at one of them into a *new* task,
+optionally with overridden state (`request=…`, `plan={…}`, `options.require_human_review=true`), runs
+it, and `GET /v1/tasks/{fork}/diff` compares the two trajectories. The source task is never modified.
+
 ## Principles
 
 - **$0 by default.** All model roles run on free tiers with per-role fallback chains (`config/models.yaml`). Paid providers are optional and disabled.

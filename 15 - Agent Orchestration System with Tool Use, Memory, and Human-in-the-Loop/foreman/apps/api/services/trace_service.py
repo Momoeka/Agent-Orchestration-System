@@ -144,6 +144,9 @@ class TraceService:
     def checkpoints(self, task_id: str) -> list[dict[str, Any]] | None:
         if self._store.get_task(task_id) is None:
             return None
+        from packages.shared.asyncio_compat import use_selector_event_loop_on_windows
+
+        use_selector_event_loop_on_windows()  # must precede asyncio.run: psycopg async on Windows
         return asyncio.run(self._checkpoints(task_id))
 
     async def _checkpoints(self, task_id: str) -> list[dict[str, Any]]:
@@ -153,9 +156,7 @@ class TraceService:
         from packages.orchestrator.graph.serde import checkpoint_serde
         from packages.orchestrator.tracing.replay import list_checkpoints, make_light_deps
         from packages.orchestrator.worker import checkpointer_conninfo
-        from packages.shared.asyncio_compat import use_selector_event_loop_on_windows
 
-        use_selector_event_loop_on_windows()
         async with AsyncPostgresSaver.from_conn_string(
             checkpointer_conninfo(self._settings.database_url), serde=checkpoint_serde()
         ) as saver:

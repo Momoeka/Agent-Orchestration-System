@@ -256,7 +256,9 @@ Span naming convention:
 | `memory.recall` / `memory.write` | count, ids |
 | `hitl.interrupt` / `hitl.resume` | approval_id, level, trigger, decision |
 
-`cost_ledger` entries are derived from `llm.call` spans and written to `llm_calls`. `GET /v1/stats` aggregates: cost per task type, escalation rate by trigger/level, approval rate, mean steps, p50/p95 task latency.
+`cost_ledger` entries are derived from `llm.call` spans and written to `llm_calls`. `GET /v1/stats` aggregates: tasks by status and per day, completion rate, mean LLM calls / tokens / cost per task, escalation rate by level and trigger, approval rate, tool calls by tool, p50/p95 task latency, the all-time count of unapproved destructive actions, and the last eval report's headline (`packages/evals/reports/latest.json`).
+
+`GET /v1/tasks/{id}/trace` merges every Jaeger trace tagged with the task id (one per worker invocation: the initial run and each resume) into a single depth-first span tree; when Jaeger is unreachable the ledgers (`llm_calls`, `tool_invocations`, `approvals`, `audit_log`) give a flat timeline instead. Replay (`packages/orchestrator/tracing/replay.py`) lists a task's LangGraph checkpoints, forks one into a new task (`aupdate_state` on a new thread with `as_node` = the node that produced the checkpoint, then `ainvoke`), applies overrides, and diffs the two task views.
 
 ## 10. LLM access layer (`packages/orchestrator/llm/`)
 
@@ -319,15 +321,17 @@ Exact model ids for Mistral, Groq, and Gemini are confirmed on Day 0 (free lineu
 |---|---|---|---|
 | POST | `/v1/tasks` | `{request, user_id, require_human_review?, budget_usd?}` | 202 `{task_id, status}` |
 | GET | `/v1/tasks/{id}` | — | `{status, plan, subtasks, final_output, cost_usd, pending_approval?}` |
-| GET | `/v1/tasks/{id}/trace` | — | span tree |
-| POST | `/v1/tasks/{id}/replay` | `{from_checkpoint_id, overrides}` | 202 `{task_id}` |
+| GET | `/v1/tasks/{id}/trace` | — | span tree from Jaeger (ledger timeline fallback) |
+| GET | `/v1/tasks/{id}/checkpoints` | — | checkpoints, oldest first, with produced-by / next nodes |
+| POST | `/v1/tasks/{id}/replay` | `{checkpoint_id, overrides}` | 202 `{task_id}` — a new, forked task; the source is never modified |
+| GET | `/v1/tasks/{id}/diff` | — | trajectory diff of a replayed task against its source |
 | GET | `/v1/approvals` | `?status=pending` | list with context packages |
 | GET | `/v1/approvals/{id}` | — | full context package |
 | POST | `/v1/approvals/{id}/decide` | `{decision: approve|modify|reject|take_over, payload?, reason}` | `{status}` |
 | GET | `/v1/memory/users/{user_id}` | — | memories |
 | DELETE | `/v1/memory/users/{user_id}` | — | `{deleted}` |
 | GET | `/v1/tools` | — | registry view |
-| GET | `/v1/stats` | `?since=` | aggregates |
+| GET | `/v1/stats` | `?days=7` | aggregates + the last eval headline |
 
 Auth: static `X-API-Key` header checked by middleware. Errors: RFC 7807 problem details.
 
