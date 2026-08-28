@@ -57,7 +57,8 @@ except httpx.HTTPStatusError as e:
 st.selectbox(
     "Recent tasks (newest first)",
     [
-        f"{t['task_id']} · {t['status']} · {(t['created_at'] or '')[11:16]} UTC · {t['request'][:70]}"
+        f"{t['task_id']} · user {t['user_id']} · {t['status']} · {(t['created_at'] or '')[11:16]} UTC · "
+        f"{t['request'][:60]}"
         for t in recent
     ],
     index=None,

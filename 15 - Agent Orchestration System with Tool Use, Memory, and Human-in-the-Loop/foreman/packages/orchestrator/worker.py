@@ -9,10 +9,12 @@ an approval, resumes with a human's decision, and expires overdue approvals on a
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import Any
 
 import structlog
 from celery import Celery
+from celery.signals import worker_ready
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.types import Command
@@ -22,6 +24,7 @@ from packages.orchestrator.graph.serde import checkpoint_serde
 from packages.orchestrator.graph.state import initial_state
 from packages.orchestrator.hitl.timeouts import expire_due
 from packages.orchestrator.memory.consolidate import consolidate
+from packages.orchestrator.memory.persistent import TaskStore
 from packages.orchestrator.runtime import (
     build_runtime,
     make_approvals,
@@ -144,6 +147,29 @@ async def execute_task(
         }
     log.info("task.finished", task_id=task_id, status=final.get("status"))
     return {"task_id": task_id, "status": final.get("status"), "error": final.get("error")}
+
+
+def recover_running_tasks(store: TaskStore, enqueue: Callable[[str], None]) -> list[str]:
+    """Tasks still marked `running` when a worker starts were cut off by a crash or reboot; their
+    graphs resume from the last checkpoint once re-enqueued. Assumes one worker (Phase 7: leases).
+    """
+    stale = [t["task_id"] for t in store.list_tasks(limit=500) if t["status"] == "running"]
+    for task_id in stale:
+        enqueue(task_id)
+    if stale:
+        log.warning("worker.recovered_running_tasks", count=len(stale), task_ids=stale)
+    return stale
+
+
+@worker_ready.connect  # type: ignore[untyped-decorator]
+def _recover_on_start(sender: Any = None, **_: Any) -> None:
+    try:
+        recover_running_tasks(
+            make_store(_settings),
+            lambda task_id: celery_app.send_task(TASK_NAME, args=[task_id]),
+        )
+    except Exception as e:  # noqa: BLE001 — recovery must never stop the worker from starting
+        log.warning("worker.recovery_failed", error=str(e)[:200])
 
 
 @celery_app.task(name=TASK_NAME, bind=True, max_retries=0)  # type: ignore[untyped-decorator]

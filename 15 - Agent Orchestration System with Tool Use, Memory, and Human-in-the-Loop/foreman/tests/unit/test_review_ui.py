@@ -197,6 +197,9 @@ class FakeClient:
     def outbox(self, limit: int = 100) -> list[dict[str, Any]]:
         return OUTBOX
 
+    def memory_users(self) -> list[dict[str, Any]]:
+        return [{"user_id": "u_42", "count": 1}]
+
     def memories(self, user_id: str) -> list[dict[str, Any]]:
         return list(MEMORIES) if user_id == "u_42" else []
 

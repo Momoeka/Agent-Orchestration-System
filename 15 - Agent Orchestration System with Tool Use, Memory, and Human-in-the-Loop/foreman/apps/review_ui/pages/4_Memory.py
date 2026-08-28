@@ -20,13 +20,32 @@ def client() -> ForemanClient:
     return st.session_state["client"]  # type: ignore[no-any-return]
 
 
+def pick_user() -> None:
+    chosen = st.session_state.get("memory-user-pick")
+    if chosen:
+        st.session_state["memory-user"] = chosen.split(" ", 1)[0]
+
+
 c = client()
 st.title("Memory")
 st.caption(
     "Lessons extracted after each task, recalled into the planner for the same user. "
     "Importance fades when a lesson is not used; faded or old lessons expire on the nightly pass."
 )
-user_id = st.text_input("User id", value="u_42", key="memory-user").strip()
+st.session_state.setdefault("memory-user", "u_42")
+try:
+    known = c.memory_users()
+except httpx.HTTPStatusError:
+    known = []
+st.selectbox(
+    "Users with memories",
+    [f"{u['user_id']} · {u['count']} lesson{'s' if u['count'] != 1 else ''}" for u in known],
+    index=None,
+    placeholder="pick a user, or type an id below",
+    key="memory-user-pick",
+    on_change=pick_user,
+)
+user_id = st.text_input("User id", key="memory-user").strip()
 if not user_id:
     st.stop()
 try:

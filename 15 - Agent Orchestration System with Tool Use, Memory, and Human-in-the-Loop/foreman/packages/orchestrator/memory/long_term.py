@@ -262,6 +262,17 @@ class LongTermMemory:
     def count(self) -> int:
         return int(self._col.count())
 
+    def users(self) -> list[dict[str, Any]]:
+        """Who has lessons, and how many — so an operator never has to guess a user id."""
+        counts: dict[str, int] = {}
+        for _, meta in self.all_metadata():
+            uid = str(meta.get("user_id", ""))
+            counts[uid] = counts.get(uid, 0) + 1
+        return [
+            {"user_id": uid, "count": n}
+            for uid, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        ]
+
     def all_metadata(self) -> list[tuple[str, dict[str, Any]]]:
         res = self._col.get(include=["metadatas"])
         return list(zip(res["ids"], [dict(m) for m in res["metadatas"]], strict=True))

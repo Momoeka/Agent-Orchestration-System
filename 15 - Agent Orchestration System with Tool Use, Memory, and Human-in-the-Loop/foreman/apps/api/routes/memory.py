@@ -18,6 +18,11 @@ def get_service(request: Request) -> MemoryService:
 Service = Annotated[MemoryService, Depends(get_service)]
 
 
+@router.get("/users")
+def list_users(service: Service) -> list[dict[str, Any]]:
+    return controller.list_users(service)
+
+
 @router.get("/users/{user_id}")
 def list_memories(user_id: str, service: Service) -> list[dict[str, Any]]:
     return controller.list_memories(service, user_id)

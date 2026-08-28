@@ -26,8 +26,11 @@ class MemoryService:
             raise MemoryUnavailableError("long-term memory is not available")
         return self._memory
 
-    def list(self, user_id: str) -> list[dict[str, Any]]:
+    def list_user(self, user_id: str) -> list[dict[str, Any]]:
         return [m.model_dump(mode="json") for m in self._store().list_user(user_id)]
 
     def delete(self, user_id: str) -> int:
         return self._store().delete_user(user_id)
+
+    def users(self) -> list[dict[str, Any]]:
+        return self._store().users()

@@ -73,6 +73,11 @@ class ForemanClient:
         r.raise_for_status()
         return dict(r.json())
 
+    def memory_users(self) -> list[dict[str, Any]]:
+        r = self._client.get("/v1/memory/users")
+        r.raise_for_status()
+        return list(r.json())
+
     def memories(self, user_id: str) -> list[dict[str, Any]]:
         r = self._client.get(f"/v1/memory/users/{user_id}")
         r.raise_for_status()

@@ -169,6 +169,7 @@ async def test_delete_user_removes_only_that_user(
     lt, _, _ = memory
     await lt.write("u1", [rec("first lesson for user one"), rec("second lesson for user one")])
     await lt.write("u2", [rec("a lesson for user two")])
+    assert lt.users() == [{"user_id": "u1", "count": 2}, {"user_id": "u2", "count": 1}]
     assert lt.delete_user("u1") == 2
     assert lt.list_user("u1") == [] and lt.count() == 1
     assert lt.list_user("u2")[0].text == "a lesson for user two"

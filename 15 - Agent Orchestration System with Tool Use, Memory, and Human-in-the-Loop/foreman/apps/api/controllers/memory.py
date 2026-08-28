@@ -15,7 +15,14 @@ class DeleteMemoryResponse(BaseModel):
 
 def list_memories(service: MemoryService, user_id: str) -> list[dict[str, Any]]:
     try:
-        return service.list(user_id)
+        return service.list_user(user_id)
+    except MemoryUnavailableError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+
+def list_users(service: MemoryService) -> list[dict[str, Any]]:
+    try:
+        return service.users()
     except MemoryUnavailableError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
 

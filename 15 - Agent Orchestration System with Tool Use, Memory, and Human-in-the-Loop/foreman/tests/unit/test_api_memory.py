@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from fastapi.testclient import TestClient
 
@@ -40,6 +41,9 @@ class FakeStore:
     def delete_user(self, user_id: str) -> int:
         return len(self.rows.pop(user_id, []))
 
+    def users(self) -> list[dict[str, Any]]:
+        return [{"user_id": u, "count": len(rows)} for u, rows in self.rows.items()]
+
 
 def make_client(tmp_path: Path, **kw: object) -> TestClient:
     engine = make_engine(f"sqlite:///{tmp_path / 'api.db'}")
@@ -59,6 +63,7 @@ def make_client(tmp_path: Path, **kw: object) -> TestClient:
 def test_list_and_delete(tmp_path: Path) -> None:
     store = FakeStore()
     c = make_client(tmp_path, long_term=store)
+    assert c.get("/v1/memory/users", headers=HEADERS).json() == [{"user_id": "u_42", "count": 1}]
     rows = c.get("/v1/memory/users/u_42", headers=HEADERS).json()
     assert [r["id"] for r in rows] == ["m1"] and rows[0]["effective_importance"] == 4.2
     assert c.get("/v1/memory/users/u_42").status_code == 401
