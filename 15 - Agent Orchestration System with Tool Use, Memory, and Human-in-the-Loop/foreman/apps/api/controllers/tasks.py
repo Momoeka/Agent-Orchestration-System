@@ -34,6 +34,10 @@ def create_task(service: TaskService, body: CreateTaskRequest) -> CreateTaskResp
     return CreateTaskResponse(**out)
 
 
+def list_tasks(service: TaskService, limit: int) -> list[dict[str, Any]]:
+    return service.list(limit=max(1, min(limit, 200)))
+
+
 def get_task(service: TaskService, task_id: str) -> dict[str, Any]:
     view = service.get(task_id)
     if view is None:

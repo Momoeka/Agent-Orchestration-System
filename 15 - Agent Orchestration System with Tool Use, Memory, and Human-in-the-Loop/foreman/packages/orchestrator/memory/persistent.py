@@ -375,6 +375,22 @@ class TaskStore:
 
     # ---------- reads for the API ----------
 
+    def list_tasks(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        """Newest first: enough for an operator to find a task without knowing its id."""
+        with self._sessions() as s:
+            stmt = select(TaskRow).order_by(TaskRow.created_at.desc()).limit(limit)
+            return [
+                {
+                    "task_id": r.id,
+                    "user_id": r.user_id,
+                    "status": r.status,
+                    "created_at": _iso(r.created_at),
+                    "request": r.request[:120],
+                    "error": r.error,
+                }
+                for r in s.scalars(stmt).all()
+            ]
+
     def task_view(self, task_id: str) -> dict[str, Any] | None:
         with self._sessions() as s:
             row = s.get(TaskRow, task_id)

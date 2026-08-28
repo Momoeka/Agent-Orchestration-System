@@ -19,3 +19,6 @@ class TaskService:
 
     def get(self, task_id: str) -> dict[str, Any] | None:
         return self._store.task_view(task_id)
+
+    def list(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        return self._store.list_tasks(limit=limit)

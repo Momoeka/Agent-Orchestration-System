@@ -59,7 +59,9 @@ rows = c.approvals(status=None if show == "all" else show, limit=200)
 
 st.title("Approvals")
 if not rows:
-    st.info("Nothing to decide.")
+    st.info(
+        "No pending approvals. A running task appears here the moment it pauses for a decision; watch its status on the Tasks page (auto-refresh is on there)."
+    )
     st.stop()
 
 # ---- queue ----
@@ -77,7 +79,7 @@ table = [
     }
     for r in rows
 ]
-st.dataframe(table, use_container_width=True, hide_index=True)
+st.dataframe(table, width="stretch", hide_index=True)
 ids = [r["id"] for r in rows]
 selected = st.selectbox("Open approval", ids, index=0, key="selected")
 detail = c.approval(int(selected))
@@ -147,7 +149,7 @@ with right:
         st.stop()
     reason = st.text_area("Reason (required to reject)", key=f"reason-{selected}")
 
-    if st.button("✅ Approve", type="primary", use_container_width=True):
+    if st.button("✅ Approve", type="primary", width="stretch"):
         decide(int(selected), "approve", reason=reason)
 
     with st.expander("✏️ Modify"):
@@ -158,7 +160,7 @@ with right:
                 height=180,
                 key=f"args-{selected}",
             )
-            if st.button("Run with these arguments", use_container_width=True):
+            if st.button("Run with these arguments", width="stretch"):
                 try:
                     decide(
                         int(selected),
@@ -175,7 +177,7 @@ with right:
                 height=300,
                 key=f"plan-{selected}",
             )
-            if st.button("Use this plan", use_container_width=True):
+            if st.button("Use this plan", width="stretch"):
                 try:
                     decide(
                         int(selected), "modify", payload={"plan": json.loads(edited)}, reason=reason
@@ -185,7 +187,7 @@ with right:
         else:
             sid = st.text_input("Subtask id", key=f"sid-{selected}")
             output = st.text_area("Output for that subtask", height=200, key=f"out-{selected}")
-            if st.button("Accept this output", use_container_width=True):
+            if st.button("Accept this output", width="stretch"):
                 decide(
                     int(selected),
                     "modify",
@@ -193,7 +195,7 @@ with right:
                     reason=reason,
                 )
 
-    if st.button("⛔ Reject", use_container_width=True):
+    if st.button("⛔ Reject", width="stretch"):
         if not reason.strip():
             st.warning("A reason is required to reject.")
         else:
@@ -204,12 +206,12 @@ with right:
             output = st.text_area(
                 "Output for the subtask (the agent stands down)", height=200, key=f"take-{selected}"
             )
-            if st.button("Submit as the subtask result", use_container_width=True):
+            if st.button("Submit as the subtask result", width="stretch"):
                 decide(int(selected), "take_over", payload={"output": output}, reason=reason)
         else:
             title = st.text_input("Deliverable title", key=f"title-{selected}")
             body = st.text_area("Deliverable body (Markdown)", height=260, key=f"body-{selected}")
-            if st.button("Submit as the final deliverable", use_container_width=True):
+            if st.button("Submit as the final deliverable", width="stretch"):
                 decide(
                     int(selected),
                     "take_over",

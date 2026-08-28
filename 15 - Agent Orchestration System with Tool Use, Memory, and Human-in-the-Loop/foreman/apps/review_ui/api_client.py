@@ -54,6 +54,11 @@ class ForemanClient:
         r.raise_for_status()
         return dict(r.json())
 
+    def tasks(self, limit: int = 50) -> list[dict[str, Any]]:
+        r = self._client.get("/v1/tasks", params={"limit": limit})
+        r.raise_for_status()
+        return list(r.json())
+
     def create_task(
         self, request: str, user_id: str, *, require_human_review: bool = False
     ) -> dict[str, Any]:

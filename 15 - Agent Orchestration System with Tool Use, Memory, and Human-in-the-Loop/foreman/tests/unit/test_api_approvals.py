@@ -95,3 +95,11 @@ def test_decide_records_and_wakes_the_worker_once(env) -> None:  # type: ignore[
 def test_outbox_endpoint(env) -> None:  # type: ignore[no-untyped-def]
     c, _, _, _ = env
     assert c.get("/v1/outbox", headers=HEADERS).json() == []
+
+
+def test_list_tasks_newest_first(env) -> None:  # type: ignore[no-untyped-def]
+    c, _, task_id, _ = env
+    rows = c.get("/v1/tasks?limit=5", headers=HEADERS).json()
+    assert [r["task_id"] for r in rows] == [task_id]
+    assert rows[0]["status"] == "queued" and rows[0]["request"] == "send the letter"
+    assert c.get("/v1/tasks").status_code == 401

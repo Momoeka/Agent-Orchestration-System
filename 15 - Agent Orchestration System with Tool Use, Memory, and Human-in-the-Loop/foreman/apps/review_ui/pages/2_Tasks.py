@@ -1,8 +1,10 @@
-"""Task lookup: plan, subtasks with verdicts, deliverable, ledger counts (docs/Design.md §3.3–3.4)."""
+"""Task lookup: recent tasks, plan, subtasks with verdicts, deliverable, ledger counts
+(docs/Design.md §3.3–3.4)."""
 
 from __future__ import annotations
 
 import json
+import time
 
 import httpx
 import streamlit as st
@@ -14,6 +16,8 @@ from packages.shared.config import get_settings
 st.set_page_config(page_title="Foreman — tasks", page_icon="🗂️", layout="wide")
 inject_css()
 
+ACTIVE = {"queued", "running"}
+
 
 def client() -> ForemanClient:
     if "client" not in st.session_state:
@@ -22,28 +26,64 @@ def client() -> ForemanClient:
     return st.session_state["client"]  # type: ignore[no-any-return]
 
 
+def pick_recent() -> None:
+    """Selecting a recent task fills the id box (callbacks run before the widgets are drawn)."""
+    chosen = st.session_state.get("recent-task")
+    if chosen:
+        st.session_state["task-id-input"] = chosen.split(" ", 1)[0]
+
+
 c = client()
+st.session_state.setdefault("task-id-input", "")
 st.title("Tasks")
 
-with st.expander("Submit a new task"):
+with st.expander("Submit a new task", expanded=not st.session_state["task-id-input"]):
     req = st.text_area("Request", height=100, key="new-request")
-    user = st.text_input("User id", value="u_42", key="new-user")
+    user = st.text_input("User id (who is asking — not the task id)", value="u_42", key="new-user")
     review = st.checkbox("Require plan approval before any work (L3)", key="new-review")
     if st.button("Submit", type="primary"):
         try:
             out = c.create_task(req, user, require_human_review=review)
-            st.success(f"queued: {out['task_id']}")
-            st.session_state["task_id"] = out["task_id"]
+            st.session_state["task-id-input"] = out["task_id"]
+            st.success(f"queued: {out['task_id']} — selected below; the page refreshes itself")
         except httpx.HTTPStatusError as e:
             st.error(f"{e.response.status_code}: {e.response.text[:300]}")
 
-task_id = st.text_input("Task id", value=st.session_state.get("task_id", ""), key="task-id-input")
-if not task_id.strip():
-    st.stop()
 try:
-    v = c.task(task_id.strip())
+    recent = c.tasks(limit=30)
 except httpx.HTTPStatusError as e:
     st.error(f"{e.response.status_code}: {e.response.text[:300]}")
+    recent = []
+st.selectbox(
+    "Recent tasks (newest first)",
+    [
+        f"{t['task_id']} · {t['status']} · {(t['created_at'] or '')[11:16]} UTC · {t['request'][:70]}"
+        for t in recent
+    ],
+    index=None,
+    placeholder="pick one, or paste a task id below",
+    key="recent-task",
+    on_change=pick_recent,
+)
+
+left, right = st.columns([5, 1])
+task_id = left.text_input("Task id", key="task-id-input").strip()
+if right.button("Refresh", width="stretch"):
+    st.rerun()
+auto = st.checkbox(
+    "Auto-refresh every 10 s while the task is running", value=True, key="auto-refresh"
+)
+
+if not task_id:
+    st.info("Submit a task above or pick one from Recent tasks.")
+    st.stop()
+try:
+    v = c.task(task_id)
+except httpx.HTTPStatusError as e:
+    if e.response.status_code == 404:
+        st.error(f"No task with id `{task_id}` — task ids are UUIDs; pick one from Recent tasks.")
+    else:
+        st.error(f"{e.response.status_code}: {e.response.text[:300]}")
     st.stop()
 
 st.markdown(
@@ -52,6 +92,8 @@ st.markdown(
     f"cost {v['cost_usd'] if v['cost_usd'] is not None else '$0 (free tiers)'}",
     unsafe_allow_html=True,
 )
+if v["status"] in ACTIVE:
+    st.caption("Working — a task with a send step typically pauses for approval after 2–5 minutes.")
 if v.get("pending_approval_id"):
     st.warning(f"Waiting on approval #{v['pending_approval_id']} — open the Approvals page.")
 if v.get("error"):
@@ -99,7 +141,7 @@ if v.get("subtasks"):
 
 if v.get("approvals"):
     st.subheader("Approvals on this task")
-    st.dataframe(v["approvals"], use_container_width=True, hide_index=True)
+    st.dataframe(v["approvals"], width="stretch", hide_index=True)
 
 if v.get("final_output"):
     fo = v["final_output"]
@@ -108,3 +150,7 @@ if v.get("final_output"):
     st.markdown(fo.get("body", ""))
     with st.expander("raw JSON"):
         st.code(json.dumps(fo, indent=2), language="json")
+
+if auto and v["status"] in ACTIVE:
+    time.sleep(10)
+    st.rerun()

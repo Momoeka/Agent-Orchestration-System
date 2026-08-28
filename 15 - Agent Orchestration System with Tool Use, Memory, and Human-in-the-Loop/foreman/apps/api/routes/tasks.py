@@ -23,6 +23,11 @@ def create_task(body: CreateTaskRequest, service: Service) -> CreateTaskResponse
     return controller.create_task(service, body)
 
 
+@router.get("")
+def list_tasks(service: Service, limit: int = 50) -> list[dict[str, Any]]:
+    return controller.list_tasks(service, limit)
+
+
 @router.get("/{task_id}")
 def get_task(task_id: str, service: Service) -> dict[str, Any]:
     return controller.get_task(service, task_id)

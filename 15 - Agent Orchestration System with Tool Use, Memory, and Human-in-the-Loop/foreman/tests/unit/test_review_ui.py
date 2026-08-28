@@ -157,6 +157,18 @@ class FakeClient:
         )
         return {**APPROVAL, "status": "approved"}
 
+    def tasks(self, limit: int = 50) -> list[dict[str, Any]]:
+        return [
+            {
+                "task_id": "t-1234567890",
+                "user_id": "u_42",
+                "status": "awaiting_approval",
+                "created_at": "2026-08-28T10:00:00+00:00",
+                "request": "send the letter",
+                "error": None,
+            }
+        ]
+
     def task(self, task_id: str) -> dict[str, Any]:
         assert task_id == "t-1234567890"
         return TASK
