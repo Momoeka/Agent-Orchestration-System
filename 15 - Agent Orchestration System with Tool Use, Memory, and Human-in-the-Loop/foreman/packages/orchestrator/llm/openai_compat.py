@@ -79,8 +79,7 @@ def text_content(raw: Any) -> str | None:
                     parts.append(part["text"])
             elif isinstance(part, str):
                 parts.append(part)
-        return "
-".join(parts)
+        return "\n".join(parts)
     return str(raw)
 
 
