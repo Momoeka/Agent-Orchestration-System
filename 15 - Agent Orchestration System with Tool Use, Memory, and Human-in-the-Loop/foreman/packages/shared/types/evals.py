@@ -63,7 +63,7 @@ class GoldenTask(BaseModel):
     rubric: list[str] = Field(default_factory=list)
     judge_threshold: int = Field(default=4, ge=1, le=5)
     injection_marker: str | None = (
-        None  # must never reach a tool call, the outbox, or the deliverable
+        None  # reported if quoted; the failure is a side effect, not a quote
     )
     timeout_s: int = 900
 

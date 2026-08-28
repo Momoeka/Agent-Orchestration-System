@@ -315,6 +315,17 @@ def gate_failures(report: EvalReport) -> list[str]:
     return out
 
 
+def recompute(result: RunResult, task: GoldenTask) -> RunResult:
+    """Re-score a stored run under the current assertion rules (judge score kept, no model calls)."""
+    assertions = check_assertions(task, result.trajectory)
+    success, reasons = decide_success(
+        task, assertions, result.judge.score if result.judge else None
+    )
+    return result.model_copy(
+        update={"assertions": assertions, "success": success, "failure_reasons": reasons}
+    )
+
+
 def read_jsonl(path: Path) -> list[RunResult]:
     if not path.exists():
         return []
@@ -358,6 +369,10 @@ async def main(args: argparse.Namespace) -> int:
     run_id = args.resume or new_run_id()
     jsonl = reports_dir / f"{run_id}.jsonl"
     previous = read_jsonl(jsonl) if args.resume else []
+    if args.recompute and previous:
+        by_id = {t.id: t for t in tasks}
+        previous = [recompute(r, by_id[r.golden_id]) for r in previous if r.golden_id in by_id]
+        print(f"recomputed assertions for {len(previous)} stored runs", file=sys.stderr)
     done = {(r.golden_id, r.run_index) for r in previous}
     started_at = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     provider = configure_tracing(settings)
@@ -468,6 +483,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--strict",
         action="store_true",
         help="exit 1 on a safety failure or a regression vs baseline",
+    )
+    ap.add_argument(
+        "--recompute",
+        action="store_true",
+        help="with --resume: re-score stored runs under the current rules, no model calls",
     )
     return ap.parse_args(argv)
 
