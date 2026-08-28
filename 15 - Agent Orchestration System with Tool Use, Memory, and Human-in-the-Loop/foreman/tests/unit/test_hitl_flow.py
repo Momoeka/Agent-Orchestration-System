@@ -51,6 +51,13 @@ async def test_l2_pause_has_everything_a_reviewer_needs(tmp_path: Path) -> None:
         pending is not None and pending["id"] == value["approval_id"] and pending["level"] == "L2"
     )
     assert sc.registry.invoked == []  # nothing executed while a human decides
+    view = sc.store.task_view(task_id)  # progress is visible while paused, not only at the end
+    assert view is not None and {s["id"]: s["status"] for s in view["subtasks"]} == {
+        "A": "accepted",
+        "B": "accepted",
+        "C": "planned",
+    }
+    assert view["llm_calls"] == 1 + 2 + 2  # plan + A, B + their reviews; C is mid-loop
     # re-running the paused graph (a worker restart with no decision) is idempotent: same approval, still paused
     again, _ = await sc.run(checkpointer=saver, resume=True, thread=task_id)
     assert interrupted(again)["approval_id"] == value["approval_id"]

@@ -57,6 +57,7 @@ roles:
       - {provider: mistral,          model: mistral-medium-latest}     # passed every Day-0 check in <1 s
       - {provider: tokenrouter_free, model: qwen/qwen3.8-max-free}     # strongest free option; capacity not guaranteed
       - {provider: gemini,           model: gemini-3.5-flash}
+      - {provider: groq,             model: openai/gpt-oss-120b}   # last resort: 8k TPM, so only short prompts get through (413 falls through)
     effort: high
     # mistral-large-latest timed out / 5xx'd on every Day-0 call (free-tier overload). Re-test with `make smoke`
     # and move it to the front of this chain if it recovers. Supervisor bake-off (medium vs qwen3.8-max) in Phase 6.
@@ -65,6 +66,7 @@ roles:
       - {provider: mistral,          model: mistral-medium-latest}
       - {provider: tokenrouter_free, model: qwen/qwen3.8-max-free}
       - {provider: gemini,           model: gemini-3.5-flash}
+      - {provider: groq,             model: openai/gpt-oss-120b}   # last resort: 8k TPM, so only short prompts get through (413 falls through)
     effort: medium
   reviewer:                         # must be a different family from supervisor and specialists
     chain:

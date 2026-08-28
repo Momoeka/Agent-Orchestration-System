@@ -7,6 +7,7 @@ acceptance (fail closed). Results a human supplied are accepted without a model 
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -21,6 +22,7 @@ from packages.orchestrator.loop.messages import system_message, user_message
 from packages.orchestrator.tracing.otel import span
 from packages.shared.errors import RetryableError, SchemaValidationError
 from packages.shared.types.cost import CostEntry
+from packages.shared.types.gate import ToolEvent
 from packages.shared.types.plan import ExecutionPlan
 from packages.shared.types.review import ReviewJudgement, ReviewVerdict
 from packages.shared.types.subtask import Subtask, SubtaskResult
@@ -175,6 +177,16 @@ def make_review_node(deps: GraphDeps):  # type: ignore[no-untyped-def]
                     )
                 )
 
+        # Persist what is known so far, so the operator UI shows live progress between pauses.
+        await asyncio.to_thread(
+            deps.store.record_progress,
+            state["task_id"],
+            results=results,
+            verdicts={**verdicts, **new_verdicts},
+            cost_entries=[CostEntry.model_validate(c) for c in (state.get("cost_ledger") or [])]
+            + costs,
+            tool_events=[ToolEvent.model_validate(t) for t in (state.get("tool_events") or [])],
+        )
         return {
             "review_verdicts": new_verdicts,
             "retry_counts": retry_increments,
