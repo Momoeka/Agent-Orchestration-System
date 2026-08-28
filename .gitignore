@@ -1,0 +1,22 @@
+# secrets — never committed anywhere in this tree
+**/.env
+*.pem
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# runtime state
+celerybeat-schedule*
+*.db
+*.log
+
+# tooling
+.idea/
+.vscode/
+.DS_Store

@@ -1,0 +1,41 @@
+1. PRD.md - Project Requirements Document: Defines what you're building, who the target users are, and what features the project should have.
+2. Architecture.md: Outlines the app's flow and overall architecture, including the file and folder structure and the technical stack you'll use.
+3. Rules.md: Sets boundaries for the Al, like which libraries to use or avoid, how to handle errors, and what the Al should and shouldn't do.
+4.Phases.md: Breaks the project into manageable steps since Al can't build everything at once. Example: Phase 1 is login, Phase 2 is something else, and so on.
+5. Design.md: Covers the visual side, including colors, theme, fonts, and typography.
+6. Memory.md: You don't create this at the start. You add it once the Al begins coding. It keeps the Al updated on progress so it doesn't lose context when you switch to a new chat or Al tool. Without it, the Al wastes tokens by re-reading the whole codebase or making things up.
+7. Code Quality, Modularity & Maintainability
+Whatever code is written must be clean, modular, readable, maintainable, and easy to debug. Do not put everything into a single file or create unnecessarily large files.
+Follow a clear and consistent folder structure throughout the project.
+Keep responsibilities separated:
+Components → reusable UI components
+Pages → page-level UI
+Routes → API/application routes
+Controllers → request/response handling
+Services → business logic
+Models/Database → database schemas and queries
+Middleware → authentication, validation, error handling, etc.
+Utils/Helpers → reusable utility functions
+Hooks → reusable frontend logic
+Types/Interfaces → shared TypeScript types
+Config → environment and application configuration
+Styles/CSS → styling, kept separate from business logic where appropriate
+Avoid mixing UI, business logic, database queries, API calls, and configuration in the same file.
+Each file should have a clear single responsibility wherever practical.
+Create reusable components/functions instead of repeatedly duplicating the same code.
+Keep files reasonably small. If a file becomes too large or handles multiple unrelated responsibilities, refactor it into smaller modules.
+Use clear, descriptive, and consistent naming conventions for files, functions, variables, components, routes, and database objects.
+Avoid unnecessary abstraction. Do not create files, folders, classes, or design patterns unless they provide a real benefit.
+Keep frontend and backend concerns clearly separated.
+Keep API endpoints organized and predictable.
+Centralize common functionality such as error handling, authentication, validation, logging, API responses, and database access where appropriate.
+Never hard-code secrets, API keys, passwords, tokens, or environment-specific configuration. Use environment variables/configuration files.
+Remove unused imports, dead code, duplicate code, unnecessary comments, and temporary debugging statements before considering a feature complete.
+Do not modify unrelated parts of the application while implementing a feature unless necessary.
+When changing existing functionality, preserve existing behavior unless the requirement explicitly calls for a change.
+Before adding a new dependency, check whether the existing project already provides the required functionality. Avoid unnecessary libraries and dependency bloat.
+Follow the project's existing coding conventions rather than introducing a new style without a reason.
+Code should be understandable to another developer without requiring them to ask the AI where something is located or how it works.
+After completing a significant feature, review the affected code for duplication, unnecessary complexity, poor separation of concerns, and potential bugs, and refactor where necessary.
+The final codebase should feel like a professionally engineered production project, not a collection of AI-generated code snippets.
+8. Everything in claude code will be done locally - NO making artifact or chat in the account
