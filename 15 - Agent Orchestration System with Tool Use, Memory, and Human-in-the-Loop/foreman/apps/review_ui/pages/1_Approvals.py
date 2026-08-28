@@ -164,22 +164,52 @@ with right:
 
     with st.expander("✏️ Modify"):
         if detail["kind"] == "tool_call":
-            edited = st.text_area(
-                "Arguments (JSON)",
-                value=json.dumps(action.get("arguments", {}), indent=2),
-                height=180,
-                key=f"args-{selected}",
+            args = action.get("arguments", {}) or {}
+            simple = all(
+                isinstance(v, str | int | float | bool) or v is None for v in args.values()
             )
-            if st.button("Run with these arguments", width="stretch"):
-                try:
+            if simple and args:
+                st.caption("Edit the fields you want to change, then run.")
+                edited_args: dict[str, Any] = {}
+                for key, value in args.items():
+                    label = key.replace("_", " ")
+                    widget_key = f"arg-{selected}-{key}"
+                    if isinstance(value, bool):
+                        edited_args[key] = st.checkbox(label, value=value, key=widget_key)
+                    elif isinstance(value, int | float):
+                        edited_args[key] = st.number_input(label, value=value, key=widget_key)
+                    elif isinstance(value, str) and (len(value) > 120 or chr(10) in value):
+                        edited_args[key] = st.text_area(
+                            label, value=value, height=240, key=widget_key
+                        )
+                    else:
+                        edited_args[key] = st.text_input(
+                            label, value="" if value is None else str(value), key=widget_key
+                        )
+                if st.button("Run with these arguments", width="stretch"):
                     decide(
                         int(selected),
                         "modify",
-                        payload={"arguments": json.loads(edited)},
+                        payload={"arguments": edited_args},
                         reason=reason,
                     )
-                except json.JSONDecodeError as e:
-                    st.error(f"invalid JSON: {e}")
+            else:
+                edited = st.text_area(
+                    "Arguments (JSON)",
+                    value=json.dumps(args, indent=2),
+                    height=180,
+                    key=f"args-{selected}",
+                )
+                if st.button("Run with these arguments", width="stretch"):
+                    try:
+                        decide(
+                            int(selected),
+                            "modify",
+                            payload={"arguments": json.loads(edited)},
+                            reason=reason,
+                        )
+                    except json.JSONDecodeError as e:
+                        st.error(f"invalid JSON: {e}")
         elif detail["kind"] == "plan":
             edited = st.text_area(
                 "Plan (JSON)",
