@@ -115,20 +115,38 @@ def test_strict_schema_sets_additional_properties_everywhere() -> None:
     assert "additionalProperties" not in schema  # original untouched
 
 
-def test_models_config_rejects_paid_provider_in_default_chain(tmp_path: Path) -> None:
+def test_models_config_drops_paid_entries_unless_enabled(tmp_path: Path) -> None:
     cfg = tmp_path / "models.yaml"
     cfg.write_text(
         "providers:\n  free: {base_url_env: GROQ_BASE_URL, api_key_env: GROQ_API_KEY, free_tier: true}\n"
         "  paid: {base_url_env: TOKENROUTER_BASE_URL, api_key_env: TOKENROUTER_API_KEY, paid: true}\n"
-        "roles:\n  cheap:\n    chain: [{provider: paid, model: x}]\n",
+        "roles:\n"
+        "  cheap:\n    chain: [{provider: paid, model: x}]\n"
+        "  mixed:\n    chain: [{provider: paid, model: x}, {provider: free, model: y}]\n",
         encoding="utf-8",
     )
-    with pytest.raises(ValueError, match="paid provider"):
+    # a chain that would become empty is an error, never a silently missing role
+    with pytest.raises(ValueError, match="only paid providers"):
         load_models_config(cfg, enable_paid=False)
-    assert load_models_config(cfg, enable_paid=True).role("cheap").chain[0].provider == "paid"
+    # with the flag on, paid entries stay in order
+    on = load_models_config(cfg, enable_paid=True)
+    assert on.role("cheap").chain[0].provider == "paid"
+    assert [e.provider for e in on.role("mixed").chain] == ["paid", "free"]
 
 
-def test_repo_models_config_is_free_only() -> None:
+def test_models_config_mixed_chain_falls_back_to_free(tmp_path: Path) -> None:
+    cfg = tmp_path / "models.yaml"
+    cfg.write_text(
+        "providers:\n  free: {base_url_env: GROQ_BASE_URL, api_key_env: GROQ_API_KEY, free_tier: true}\n"
+        "  paid: {base_url_env: TOKENROUTER_BASE_URL, api_key_env: TOKENROUTER_API_KEY, paid: true}\n"
+        "roles:\n  mixed:\n    chain: [{provider: paid, model: x}, {provider: free, model: y}]\n",
+        encoding="utf-8",
+    )
+    off = load_models_config(cfg, enable_paid=False)
+    assert [e.provider for e in off.role("mixed").chain] == ["free"]
+
+
+def test_repo_models_config_is_free_only_by_default() -> None:
     cfg = load_models_config(Path("config/models.yaml"), enable_paid=False)
     for role in ("supervisor", "specialist", "reviewer", "cheap", "embedding"):
         assert cfg.role(role).chain, role

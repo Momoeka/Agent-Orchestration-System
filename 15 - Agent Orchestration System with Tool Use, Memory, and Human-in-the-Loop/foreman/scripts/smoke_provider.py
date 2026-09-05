@@ -38,6 +38,7 @@ PROVIDERS: dict[str, tuple[str, str]] = {
     "gemini": ("GEMINI_BASE_URL", "GEMINI_API_KEY"),
     "tokenrouter_free": ("TOKENROUTER_BASE_URL", "TOKENROUTER_FREE_API_KEY"),
     "tokenrouter": ("TOKENROUTER_BASE_URL", "TOKENROUTER_API_KEY"),
+    "explabs": ("EXPLABS_BASE_URL", "EXPLABS_API_KEY"),
     "ollama": ("OLLAMA_BASE_URL", ""),
 }
 

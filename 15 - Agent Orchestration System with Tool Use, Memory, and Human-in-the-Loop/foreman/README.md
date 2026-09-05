@@ -19,6 +19,10 @@ make dev-up               # Docker → compose → migrations → 5 MCP servers 
 make demo                 # the showcase task end to end, printed step by step
 ```
 
+Optional: a paid model can sit at the front of the supervisor/specialist chains (currently
+Experiential Labs `gpt-6-astra`) — set its key and `ENABLE_PAID_PROVIDERS=true` in `.env`. While
+the flag is false those chain entries are simply dropped, so the default stays $0.
+
 `make dev-up` is `scripts/dev_up.ps1` on Windows (`scripts/dev_up.sh` elsewhere); `make dev-down`
 stops the app processes. Without `make` on Windows, call the scripts directly:
 `powershell -ExecutionPolicy Bypass -File scripts/dev_up.ps1`. After it finishes:

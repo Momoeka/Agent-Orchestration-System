@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     enable_paid_providers: bool = False
     tokenrouter_api_key: str = ""
     anthropic_api_key: str = ""
+    explabs_api_key: str = ""
+    explabs_base_url: str = "https://api.experientiallabs.ai/v1"
 
     # --- stores ---
     database_url: str = "postgresql+psycopg://foreman:foreman@localhost:5432/foreman"

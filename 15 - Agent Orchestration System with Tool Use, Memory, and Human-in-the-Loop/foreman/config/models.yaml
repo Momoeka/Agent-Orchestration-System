@@ -50,10 +50,19 @@ providers:
     sdk: anthropic
     api_key_env: ANTHROPIC_API_KEY
     paid: true
+  explabs:
+    base_url_env: EXPLABS_BASE_URL
+    api_key_env: EXPLABS_API_KEY
+    paid: true            # credits, not a free tier — entries below are dropped unless ENABLE_PAID_PROVIDERS=true
+    limits: {concurrency: 2}
+    notes: "Experiential Labs (api.experientiallabs.ai/v1), OpenAI-compatible; org credits; verified id: gpt-6-astra"
 
+# Paid entries in a chain are dropped by the loader when ENABLE_PAID_PROVIDERS=false, so a clean
+# clone with no paid key still runs the exact free chains below ($0 default, Rules.md §6).
 roles:
   supervisor:                       # plan + synthesise: strongest reasoning, reliable JSON
     chain:
+      - {provider: explabs,          model: gpt-6-astra}               # paid opt-in; first when enabled
       - {provider: mistral,          model: mistral-medium-latest}     # passed every Day-0 check in <1 s
       - {provider: groq,             model: openai/gpt-oss-120b}       # planning prompts are short: fast and reliable here; synthesis may 413 (8k TPM) and fall through
       - {provider: tokenrouter_free, model: qwen/qwen3.8-max-free}     # strongest free option; capacity not guaranteed (503 cold), ~100 s calls
@@ -63,6 +72,7 @@ roles:
     # and move it to the front of this chain if it recovers. Supervisor bake-off (medium vs qwen3.8-max) in Phase 6.
   specialist:                       # tool loops: most of the volume; every entry must take >10k-token requests
     chain:
+      - {provider: explabs,          model: gpt-6-astra}               # paid opt-in; no free-tier TPM caps
       - {provider: mistral,          model: mistral-medium-latest}
       - {provider: tokenrouter_free, model: qwen/qwen3.8-max-free}
       - {provider: gemini,           model: gemini-3.5-flash}

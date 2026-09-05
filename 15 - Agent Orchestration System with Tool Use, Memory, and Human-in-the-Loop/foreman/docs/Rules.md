@@ -78,7 +78,7 @@ Rules: catch the most specific class first; never catch bare `Exception` except 
 - `.env` is gitignored; `.env.example` is committed with empty values.
 - The only code that reads the environment is the settings module. Everything else receives typed settings by injection.
 - `tokens.txt` on the desktop is not part of the repo. Its two keys become `TOKENROUTER_FREE_API_KEY` and `TOKENROUTER_API_KEY` in `.env`; the file is then deleted and the paid key rotated. Free-provider keys (`MISTRAL_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`) live only in `.env`.
-- **No paid provider in a default chain.** `ENABLE_PAID_PROVIDERS` defaults to `false`; the settings module refuses to load `paid_optional` roles unless it is `true`. A test asserts the default chains contain only free providers.
+- **No paid provider in an effective default chain.** `ENABLE_PAID_PROVIDERS` defaults to `false`; a chain may *list* paid entries (e.g. `explabs` gpt-6-astra first), but the loader drops them while the flag is false, and a role that would end up empty is a config error. A test asserts the effective default chains contain only free providers.
 - Never commit `data/` contents other than the generator script.
 
 ## 7. Data rules

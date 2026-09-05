@@ -45,19 +45,26 @@ class ModelsConfig(BaseModel):
 
 
 def load_models_config(path: Path, *, enable_paid: bool = False) -> ModelsConfig:
-    """Parse the YAML and enforce: every chain provider exists; no paid provider in a chain unless enabled."""
+    """Parse the YAML and enforce: every chain provider exists; paid entries are dropped unless enabled.
+
+    A chain may list paid providers ahead of the free ones; with ENABLE_PAID_PROVIDERS=false those
+    entries are removed, so the effective default is still $0 (Rules.md §6). A role whose chain
+    would become empty is an error, never a silently missing role.
+    """
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     cfg = ModelsConfig.model_validate(data)
     for role_name, role in cfg.roles.items():
         for entry in role.chain:
-            provider = cfg.providers.get(entry.provider)
-            if provider is None:
+            if entry.provider not in cfg.providers:
                 raise ValueError(
                     f"Role '{role_name}' references unknown provider '{entry.provider}'"
                 )
-            if provider.paid and not enable_paid:
+        if not enable_paid:
+            kept = [e for e in role.chain if not cfg.providers[e.provider].paid]
+            if not kept:
                 raise ValueError(
-                    f"Role '{role_name}' has paid provider '{entry.provider}' in its chain "
+                    f"Role '{role_name}' has only paid providers in its chain "
                     "but ENABLE_PAID_PROVIDERS is false (Rules.md §6)"
                 )
+            role.chain = kept
     return cfg

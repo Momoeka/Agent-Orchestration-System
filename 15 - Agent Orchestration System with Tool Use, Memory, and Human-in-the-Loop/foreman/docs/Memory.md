@@ -4,6 +4,23 @@ Running log across coding sessions. **Read this first; update it last** (Rules.m
 
 ---
 
+## 2026-09-05 — Provider: Experiential Labs `gpt-6-astra` wired in as the paid opt-in
+
+### Built
+- **New provider `explabs`** (Experiential Labs, `https://api.experientiallabs.ai/v1`, OpenAI-compatible, org credits): `config/models.yaml` provider entry (`paid: true`, concurrency 2), `EXPLABS_API_KEY` / `EXPLABS_BASE_URL` fields in `Settings`, an entry in `scripts/smoke_provider.py`. Key verified against `/api/whoami` (org `mohammadsayed722`); the model id behind the key's name is **`gpt-6-astra`** (from `/v1/models`).
+- **Loader semantics changed** (`load_models_config`): a chain may now *list* paid entries; with `ENABLE_PAID_PROVIDERS=false` they are **dropped**, instead of failing the whole config. A role whose chain would become empty is still an error. So the public repo keeps its $0 default and a clean clone boots unchanged, while this machine (flag on in `.env`) runs Astra first. Rules.md §6 reworded to match; tests updated (`only paid → error`, `mixed → free remainder`, `flag on → paid kept in order`).
+- **Chains**: `gpt-6-astra` is now first on **supervisor** and **specialist**. Reviewer stays Gemini/Groq (different family from the models it grades — Astra is OpenAI-family). `cheap` and `embedding` stay free: the gate classifier and memory extractor run constantly and would burn credits for no quality gain.
+
+### Verified
+- Day-0 smoke, `explabs / gpt-6-astra`: chat ok, tool call ok, **strict `json_schema` ok natively** (the free tiers mostly fall back to `json_object`), 3304 / 2125 / 2969 ms.
+- Unit **223 passed** · ruff · mypy strict.
+
+### Decisions and lessons
+1. The paid key opts in via the existing flag, not a chain rewrite: flip `ENABLE_PAID_PROVIDERS` and the same YAML serves both the $0 default and the credit-backed setup.
+2. The interrupted k=3 baseline `20260828-155422` was recorded **on the free chains**; do not resume it under Astra — that would mix two configs in one report. Either resume it with the flag off (free baseline) or start a fresh labelled run on Astra.
+
+---
+
 ## 2026-08-28 — Phase 7: hardening and cost — DONE (baseline k=3 still to run across sessions)
 
 ### Built
