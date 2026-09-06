@@ -75,7 +75,7 @@ def tool_messages(results: list[ToolResult]) -> list[LLMMessage]:
             )
         if r.is_error:
             content = f"ERROR: {content}"
-        out.append(
-            {"role": "tool", "tool_call_id": r.tool_call_id, "name": r.name, "content": content}
-        )
+        # No "name" here: the tool role carries only tool_call_id + content in the current OpenAI
+        # spec (the assistant's tool_calls already binds id -> name); strict routes 400 on extras.
+        out.append({"role": "tool", "tool_call_id": r.tool_call_id, "content": content})
     return out

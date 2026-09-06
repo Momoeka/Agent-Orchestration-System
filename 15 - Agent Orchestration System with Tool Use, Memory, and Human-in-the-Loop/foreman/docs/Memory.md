@@ -13,7 +13,8 @@ Running log across coding sessions. **Read this first; update it last** (Rules.m
 
 ### Verified
 - Day-0 smoke, `explabs / gpt-6-astra`: chat ok, tool call ok, **strict `json_schema` ok natively** (the free tiers mostly fall back to `json_object`), 3304 / 2125 / 2969 ms.
-- Unit **223 passed** · ruff · mypy strict.
+- **Live in the agent loop**: the first real run 400'd on every Astra call — two compat defects the smoke could not see. (a) tool-role messages carried a `name` field (not in the current OpenAI spec; strict routes reject it) → removed in `loop/messages.py`; (b) the route rejects `temperature` (reasoning model, like o-series) → `_create` now drops it once and retries, same pattern as the json_schema→json_object degrade. After the fix: **34 × HTTP 200 from gpt-6-astra inside real specialist loops**, then 429 — the bundled tier is **200k input tokens per hour** (hourly reset), and the chain fell back to the free tiers mid-hour exactly as designed.
+- Unit **224 passed** · ruff · mypy strict (new: provider drops `temperature` when the route rejects it).
 
 ### Decisions and lessons
 1. The paid key opts in via the existing flag, not a chain rewrite: flip `ENABLE_PAID_PROVIDERS` and the same YAML serves both the $0 default and the credit-backed setup.

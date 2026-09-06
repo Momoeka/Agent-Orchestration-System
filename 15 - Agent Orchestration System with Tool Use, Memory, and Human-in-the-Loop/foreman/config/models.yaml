@@ -55,7 +55,7 @@ providers:
     api_key_env: EXPLABS_API_KEY
     paid: true            # credits, not a free tier — entries below are dropped unless ENABLE_PAID_PROVIDERS=true
     limits: {concurrency: 2}
-    notes: "Experiential Labs (api.experientiallabs.ai/v1), OpenAI-compatible; org credits; verified id: gpt-6-astra"
+    notes: "Experiential Labs (api.experientiallabs.ai/v1), OpenAI-compatible; verified id: gpt-6-astra. Bundled tier: 200k input tokens/HOUR (429 -> falls through to the free chains, resumes next hour). Route rejects `temperature` (provider drops it and retries); tool messages must not carry `name`."
 
 # Paid entries in a chain are dropped by the loader when ENABLE_PAID_PROVIDERS=false, so a clean
 # clone with no paid key still runs the exact free chains below ($0 default, Rules.md §6).

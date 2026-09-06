@@ -215,25 +215,34 @@ class OpenAICompatProvider:
 
     async def _create(self, kwargs: dict[str, Any], model: str, structured: bool) -> Any:
         label = f"{self.provider_id}/{model}"
-        try:
-            return await self._client.chat.completions.create(**kwargs)
-        except BadRequestError as e:
-            # Some providers accept json_object but not json_schema; degrade once (still validated).
-            if structured and "response_format" in str(e).lower():
-                kwargs["response_format"] = {"type": "json_object"}
-                try:
-                    return await self._client.chat.completions.create(**kwargs)
-                except APIStatusError as e2:
-                    raise _map_status_error(e2, label) from e2
-            raise NonRetryableError(f"{label}: bad request: {e}") from e
-        except (APITimeoutError, APIConnectionError) as e:
-            raise RetryableError(f"{label}: {type(e).__name__}: {e}") from e
-        except RateLimitError as e:
-            raise RetryableError(f"{label}: rate limited: {e}") from e
-        except (AuthenticationError, PermissionDeniedError, NotFoundError) as e:
-            raise NonRetryableError(f"{label}: {type(e).__name__}: {e}") from e
-        except APIStatusError as e:
-            raise _map_status_error(e, label) from e
+        # Two known 400s are degraded once each, then the request is retried as-is:
+        # a route that rejects `temperature` (reasoning models: gpt-6-astra, o-series), and a
+        # provider that accepts json_object but not json_schema (reply still schema-validated).
+        for _ in range(3):
+            try:
+                return await self._client.chat.completions.create(**kwargs)
+            except BadRequestError as e:
+                reason = str(e).lower()
+                if "temperature" in reason and "temperature" in kwargs:
+                    kwargs.pop("temperature")
+                    continue
+                if (
+                    structured
+                    and "response_format" in reason
+                    and kwargs.get("response_format", {}).get("type") == "json_schema"
+                ):
+                    kwargs["response_format"] = {"type": "json_object"}
+                    continue
+                raise NonRetryableError(f"{label}: bad request: {e}") from e
+            except (APITimeoutError, APIConnectionError) as e:
+                raise RetryableError(f"{label}: {type(e).__name__}: {e}") from e
+            except RateLimitError as e:
+                raise RetryableError(f"{label}: rate limited: {e}") from e
+            except (AuthenticationError, PermissionDeniedError, NotFoundError) as e:
+                raise NonRetryableError(f"{label}: {type(e).__name__}: {e}") from e
+            except APIStatusError as e:
+                raise _map_status_error(e, label) from e
+        raise NonRetryableError(f"{label}: bad request persisted after degrading parameters")
 
 
 def _map_status_error(e: APIStatusError, label: str = "") -> Exception:

@@ -3,9 +3,14 @@ assistant fields, and a chain whose entries are all rate-limited must back off a
 
 from __future__ import annotations
 
+from typing import Any
+
+import httpx
 import pytest
+from openai import BadRequestError
 
 from packages.orchestrator.llm.chains import BACKOFF_SECONDS, ChainedLLM
+from packages.orchestrator.llm.openai_compat import OpenAICompatProvider
 from packages.orchestrator.loop.messages import assistant_message
 from packages.shared.errors import NonRetryableError, RetryableError
 from packages.shared.types.llm import LLMResponse, Usage
@@ -68,6 +73,47 @@ async def test_chain_gives_up_after_the_last_backoff_round() -> None:
         await llm.chat([{"role": "user", "content": "hi"}])
     assert delays == list(BACKOFF_SECONDS)
     assert a.calls == len(BACKOFF_SECONDS) + 1
+
+
+async def test_provider_drops_temperature_when_the_route_rejects_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """gpt-6-astra (like OpenAI's o-series routes) 400s on `temperature`; the provider must
+    retry once without it instead of failing the chain entry."""
+
+    class _Message:
+        content = "ok"
+        tool_calls = None
+
+        def model_dump(self, exclude_none: bool = False) -> dict[str, Any]:
+            return {"role": "assistant", "content": "ok"}
+
+    class _Choice:
+        message = _Message()
+        finish_reason = "stop"
+
+    class _Response:
+        choices = [_Choice()]
+        usage = None
+
+    provider = OpenAICompatProvider("explabs", "http://test/v1", "key")
+    seen: list[dict[str, Any]] = []
+
+    async def fake_create(**kwargs: Any) -> Any:
+        seen.append(kwargs)
+        if "temperature" in kwargs:
+            raise BadRequestError(
+                "The parameter 'temperature' is not supported by this model route.",
+                response=httpx.Response(400, request=httpx.Request("POST", "http://test/v1")),
+                body=None,
+            )
+        return _Response()
+
+    monkeypatch.setattr(provider._client.chat.completions, "create", fake_create)
+    resp = await provider.chat([{"role": "user", "content": "hi"}], model="gpt-6-astra")
+    assert resp.content == "ok"
+    assert len(seen) == 2
+    assert "temperature" in seen[0] and "temperature" not in seen[1]
 
 
 async def test_chain_does_not_back_off_on_non_retryable_failures() -> None:
