@@ -9,7 +9,7 @@ import pytest
 from evals.judge import JudgeScores, judge_answer
 from evals.loader import load_golden
 from evals.metrics import gate_failures, retrieval_recall, score_run, summarise
-from evals.runner import done_keys, read_jsonl
+from evals.runner import done_keys, prune_failures, read_jsonl
 from evals.types import EvalCategory, EvalRunResult, GoldenQA
 from librarian.types import Answer, Confidence, SearchHit
 from tests.test_answer import ScriptedChat
@@ -152,10 +152,10 @@ def test_judge_answer_parses_and_survives_garbage() -> None:
     assert judge_answer(ScriptedChat(["nonsense"]), "q", "g", "a", []) is None
 
 
-def test_jsonl_roundtrip_and_done_keys(tmp_path: Path) -> None:
+def test_jsonl_roundtrip_done_keys_and_retry_prune(tmp_path: Path) -> None:
     rows = [
         scored(golden(), answer(), JudgeScores(correctness=5, faithfulness=5)),
-        scored(golden(id="t_two"), answer(), None),
+        scored(golden(id="t_two"), answer(), None),  # fails: judge: no score
     ]
     f = tmp_path / "run.jsonl"
     f.write_text("".join(r.model_dump_json() + "\n" for r in rows), encoding="utf-8")
@@ -163,3 +163,7 @@ def test_jsonl_roundtrip_and_done_keys(tmp_path: Path) -> None:
     assert [r.golden_id for r in back] == ["t_one", "t_two"]
     assert done_keys(back) == {("t_one", 0), ("t_two", 0)}
     assert read_jsonl(tmp_path / "absent.jsonl") == []
+    # --retry-failures: failed rows leave the file so a resume re-runs them
+    kept = prune_failures(f)
+    assert [r.golden_id for r in kept] == ["t_one"]
+    assert [r.golden_id for r in read_jsonl(f)] == ["t_one"]

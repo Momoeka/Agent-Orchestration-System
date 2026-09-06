@@ -31,5 +31,7 @@ roles:
   judge:                         # verifies citations; a different family from the generator's
     chain:                       # primary entries (a model grading its own family shares its
       - {provider: gemini,  model: gemini-3.5-flash}       # blind spots). If the generator
-      - {provider: groq,    model: qwen/qwen3.8-27b}       # ever falls to gemini, the qwen
-                                                           # entry keeps the families apart.
+      - {provider: gemini,  model: gemini-3.5-flash-lite}  # separate daily quota bucket —
+      - {provider: groq,    model: qwen/qwen3.8-27b}       # flash alone is 20 req/day and
+                                                           # judge starvation cascades into
+                                                           # refusals of good answers.

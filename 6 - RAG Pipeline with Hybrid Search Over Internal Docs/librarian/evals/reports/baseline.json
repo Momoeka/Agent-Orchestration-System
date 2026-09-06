@@ -1,0 +1,23 @@
+{
+  "run_id": "full-hybrid-heading",
+  "metrics": {
+    "runs": 50,
+    "success_rate": 0.6,
+    "success_rate_answerable": 0.5,
+    "refusal_honesty": 1.0,
+    "retrieval_recall": 0.8375,
+    "citation_accuracy": 0.9077,
+    "faithfulness_rate": 1.0,
+    "correctness_mean": 4.7619,
+    "latency_p50_s": 8.52,
+    "latency_p95_s": 50.1,
+    "unjudged_runs": 7,
+    "targets_met": {
+      "refusal_honesty": true,
+      "success_rate_answerable": false,
+      "retrieval_recall": false,
+      "citation_accuracy": true,
+      "faithfulness_rate": true
+    }
+  }
+}

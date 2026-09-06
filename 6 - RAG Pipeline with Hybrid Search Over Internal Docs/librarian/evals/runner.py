@@ -44,6 +44,16 @@ def done_keys(results: list[EvalRunResult]) -> set[tuple[str, int]]:
     return {(r.golden_id, r.run_index) for r in results}
 
 
+def prune_failures(path: Path) -> list[EvalRunResult]:
+    """Drop failed rows from a run's JSONL so --resume re-runs them (--retry-failures).
+
+    Meant for infra-caused failures (judge starvation on free tiers); a run that fails again
+    on the retry stays failed. Successes are never touched."""
+    kept = [r for r in read_jsonl(path) if r.success]
+    path.write_text("".join(r.model_dump_json() + "\n" for r in kept), encoding="utf-8")
+    return kept
+
+
 def write_markdown(report: EvalReport, path: Path) -> None:
     m = report.metrics
     lines = [
@@ -90,6 +100,11 @@ def main() -> int:
     ap.add_argument("--only", default="", help="run a single golden id")
     ap.add_argument("--category", default="", help="run one category")
     ap.add_argument("--resume", default="", help="run id to continue")
+    ap.add_argument(
+        "--retry-failures",
+        action="store_true",
+        help="with --resume: drop failed rows first so they run again (fresh judge quota)",
+    )
     ap.add_argument("--baseline", action="store_true", help="save this run as baseline.json")
     ap.add_argument("--strict", action="store_true")
     args = ap.parse_args()
@@ -108,7 +123,11 @@ def main() -> int:
     REPORTS_DIR.mkdir(exist_ok=True)
     run_id = args.resume or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     jsonl = REPORTS_DIR / f"{run_id}.jsonl"
-    results = read_jsonl(jsonl)
+    if args.retry_failures and args.resume and jsonl.exists():
+        results = prune_failures(jsonl)
+        print(f"retrying failures: {len(results)} successes kept")
+    else:
+        results = read_jsonl(jsonl)
     skip = done_keys(results)
     started_at = datetime.now(UTC).isoformat(timespec="seconds")
 
