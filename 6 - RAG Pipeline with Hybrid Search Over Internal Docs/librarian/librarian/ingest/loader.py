@@ -103,7 +103,7 @@ def _load_html(path: Path) -> Document:
 
 def _load_pdf(path: Path) -> Document:
     pages: list[str] = []
-    with pymupdf.open(path) as pdf:
+    with pymupdf.open(path) as pdf:  # type: ignore[no-untyped-call]
         for page in pdf:
             pages.append(_normalise(str(page.get_text())))
     offsets: list[int] = []

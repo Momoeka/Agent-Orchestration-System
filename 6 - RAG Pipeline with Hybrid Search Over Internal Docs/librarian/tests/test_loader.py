@@ -42,11 +42,11 @@ def test_html_keeps_headings_drops_junk(tmp_path: Path) -> None:
 
 def test_pdf_pages_and_offsets(tmp_path: Path) -> None:
     f = tmp_path / "d.pdf"
-    pdf = pymupdf.open()
+    pdf = pymupdf.open()  # type: ignore[no-untyped-call]
     for line in ("alpha page", "beta page"):
         page = pdf.new_page()
         page.insert_text((72, 72), line)
-    pdf.save(f)
+    pdf.save(f)  # type: ignore[no-untyped-call]
     d = load_path(f)
     assert d.format is Format.PDF and len(d.page_offsets) == 2
     assert d.page_offsets[0] == 0
