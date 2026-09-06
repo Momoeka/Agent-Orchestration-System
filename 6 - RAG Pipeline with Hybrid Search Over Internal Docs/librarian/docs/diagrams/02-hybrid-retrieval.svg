@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
+  </defs>
+  <rect width="1600" height="900" fill="#FFFFFF"/>
+  <text x="40" y="46" font-size="26" font-weight="600" fill="#0F172A">One query through hybrid retrieval — a real trace</text>
+  <text x="40" y="72" font-size="14" fill="#475569">Live run, 2026-09-05 · 60 FastAPI docs · 431 chunks · nomic-embed-text on Ollama · the fusion rescue happened on the first real query.</text>
+
+  <!-- query -->
+  <rect x="450" y="96" width="700" height="48" rx="10" fill="#0F172A"/>
+  <text x="800" y="120" font-size="14" fill="#FFFFFF" text-anchor="middle">"how do I return a custom JSONResponse with a status_code"</text>
+  <text x="800" y="137" font-size="11" fill="#94A3B8" text-anchor="middle">scripts/search.py --compare</text>
+
+  <line x1="640" y1="144" x2="450" y2="186" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="960" y1="144" x2="1150" y2="186" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- dense panel -->
+  <rect x="60" y="190" width="700" height="330" rx="10" fill="#EEF2FF" stroke="#818CF8"/>
+  <text x="80" y="220" font-size="16" font-weight="600" fill="#0F172A">Dense — retrieval by meaning</text>
+  <text x="80" y="242" font-size="12" fill="#475569">embed the query (768-dim) → cosine similarity, top-10 from the Chroma collection</text>
+
+  <text x="80" y="274" font-size="12" font-weight="600" fill="#334155">rank · chunk (heading path)</text>
+  <rect x="80" y="284" width="640" height="26" rx="6" fill="#FFFFFF" stroke="#C7D2FE"/>
+  <text x="92" y="302" font-size="12" fill="#475569">#1 · Additional Status Codes › Additional status codes</text>
+  <rect x="80" y="314" width="640" height="26" rx="6" fill="#FFFFFF" stroke="#C7D2FE"/>
+  <text x="92" y="332" font-size="12" fill="#475569">#2 · Response - Change Status Code</text>
+  <rect x="80" y="344" width="640" height="26" rx="6" fill="#FFFFFF" stroke="#C7D2FE"/>
+  <text x="92" y="362" font-size="12" fill="#475569">#3 · Additional Status Codes (intro)</text>
+  <rect x="80" y="374" width="640" height="26" rx="6" fill="#FFFFFF" stroke="#C7D2FE"/>
+  <text x="92" y="392" font-size="12" fill="#475569">#4 · …</text>
+  <rect x="80" y="404" width="640" height="30" rx="6" fill="#FFF1F2" stroke="#BE123C" stroke-width="2"/>
+  <text x="92" y="424" font-size="12" font-weight="600" fill="#BE123C">#5 · Return a Response Directly › Returning a custom Response</text>
+
+  <text x="80" y="462" font-size="12" fill="#6D28D9">Semantically close but not closest: many chunks "mean"</text>
+  <text x="80" y="478" font-size="12" fill="#6D28D9">status codes. Meaning alone under-ranks the exact how-to.</text>
+  <text x="80" y="502" font-size="11" fill="#475569">dense-only would put this chunk outside the top-3 the user reads first</text>
+
+  <!-- sparse panel -->
+  <rect x="840" y="190" width="700" height="330" rx="10" fill="#FFF7ED" stroke="#D97706"/>
+  <text x="860" y="220" font-size="16" font-weight="600" fill="#0F172A">Sparse — retrieval by exact tokens (BM25)</text>
+  <text x="860" y="242" font-size="12" fill="#475569">\w+ tokenisation keeps identifiers whole: jsonresponse · status_code stay searchable</text>
+
+  <text x="860" y="274" font-size="12" font-weight="600" fill="#334155">rank · chunk (heading path)</text>
+  <rect x="860" y="284" width="640" height="26" rx="6" fill="#FFFFFF" stroke="#FDE68A"/>
+  <text x="872" y="302" font-size="12" fill="#475569">#1 · Additional Status Codes (code example: JSONResponse, status_code)</text>
+  <rect x="860" y="314" width="640" height="26" rx="6" fill="#FFFFFF" stroke="#FDE68A"/>
+  <text x="872" y="332" font-size="12" fill="#475569">#2 · Additional Status Codes › Additional status codes</text>
+  <rect x="860" y="344" width="640" height="30" rx="6" fill="#FFF1F2" stroke="#BE123C" stroke-width="2"/>
+  <text x="872" y="364" font-size="12" font-weight="600" fill="#BE123C">#3 · Return a Response Directly › Returning a custom Response</text>
+  <rect x="860" y="378" width="640" height="26" rx="6" fill="#FFFFFF" stroke="#FDE68A"/>
+  <text x="872" y="396" font-size="12" fill="#475569">#4 · …</text>
+  <rect x="860" y="408" width="640" height="26" rx="6" fill="#FFFFFF" stroke="#FDE68A"/>
+  <text x="872" y="426" font-size="12" fill="#475569">#5 · …</text>
+
+  <text x="860" y="462" font-size="12" fill="#B45309">The chunk's code block literally contains JSONResponse and</text>
+  <text x="860" y="478" font-size="12" fill="#B45309">status_code — term frequency puts it near the top.</text>
+  <text x="860" y="502" font-size="11" fill="#475569">this is where BM25 beats embeddings on technical documentation</text>
+
+  <!-- into fusion -->
+  <line x1="410" y1="520" x2="620" y2="576" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="1190" y1="520" x2="980" y2="576" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- fusion panel -->
+  <rect x="430" y="580" width="740" height="200" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="450" y="610" font-size="16" font-weight="600" fill="#0F172A">Reciprocal Rank Fusion — the rescue, in numbers</text>
+  <text x="450" y="634" font-size="13" fill="#334155" font-family="Consolas, monospace">score = 0.7 / (60 + rank_dense) + 0.3 / (60 + rank_sparse)</text>
+
+  <rect x="450" y="650" width="700" height="34" rx="8" fill="#FFF1F2" stroke="#BE123C" stroke-width="2"/>
+  <text x="462" y="672" font-size="12" font-weight="600" fill="#BE123C">"Returning a custom Response":  0.7/65 + 0.3/63 = 0.0155  →  hybrid #2</text>
+
+  <text x="450" y="708" font-size="12" fill="#475569">dense #5 alone → below the fold · sparse #3 alone → good but ignores meaning ·</text>
+  <text x="450" y="726" font-size="12" fill="#475569">fused → #2, because two independent signals both pointed at it</text>
+  <text x="450" y="752" font-size="11" fill="#475569">rank-based fusion needs no score normalisation — cosine and BM25 live on incomparable scales</text>
+
+  <!-- rerank strip -->
+  <line x1="800" y1="780" x2="800" y2="806" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <rect x="430" y="808" width="740" height="52" rx="10" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="450" y="830" font-size="13" font-weight="600" fill="#0F172A">Cross-encoder rerank: top-20 fused → top-5 to the generator</text>
+  <text x="450" y="848" font-size="12" fill="#475569">scores (query, chunk) jointly · CPU · optional dependency — absent, fused order stands (logged)</text>
+
+  <text x="40" y="886" font-size="11" fill="#94A3B8">Librarian · Project 6 · every SearchHit carries dense rank, sparse rank, RRF and rerank scores — the dashboard shows this exact story per query</text>
+</svg>

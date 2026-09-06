@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" font-family="Segoe UI, Arial, sans-serif">
+  <rect width="1600" height="900" fill="#FFFFFF"/>
+  <text x="40" y="46" font-size="26" font-weight="600" fill="#0F172A">Three chunking strategies, one document</text>
+  <text x="40" y="72" font-size="14" fill="#475569">Hand-written on purpose (Rules.md §1) — the trade-offs are the interview material. Phase 4 runs the same golden set over all three and a table picks the winner.</text>
+
+  <!-- ============ source document ============ -->
+  <rect x="40" y="110" width="300" height="560" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="60" y="140" font-size="15" font-weight="600" fill="#0F172A">The document</text>
+  <text x="60" y="160" font-size="11" fill="#475569">headings survive as # lines in every</text>
+  <text x="60" y="175" font-size="11" fill="#475569">format (md, html, pdf) — one chunker</text>
+  <text x="60" y="190" font-size="11" fill="#475569">codebase serves them all</text>
+
+  <rect x="60" y="205" width="260" height="80" rx="6" fill="#EEF2FF" stroke="#818CF8"/>
+  <text x="72" y="226" font-size="12" font-weight="600" fill="#0F172A"># Guide</text>
+  <text x="72" y="244" font-size="11" fill="#475569">intro paragraph…</text>
+
+  <rect x="60" y="291" width="260" height="90" rx="6" fill="#ECFEFF" stroke="#0E7490"/>
+  <text x="72" y="312" font-size="12" font-weight="600" fill="#0F172A">## Install</text>
+  <text x="72" y="330" font-size="11" fill="#475569">short section…</text>
+
+  <rect x="60" y="387" width="260" height="130" rx="6" fill="#FFF7ED" stroke="#D97706"/>
+  <text x="72" y="408" font-size="12" font-weight="600" fill="#0F172A">## Configure</text>
+  <text x="72" y="426" font-size="11" fill="#475569">two topics inside one section:</text>
+  <text x="72" y="442" font-size="11" fill="#475569">keys… then, unmarked, timeouts…</text>
+
+  <rect x="60" y="523" width="260" height="120" rx="6" fill="#FFF1F2" stroke="#BE123C"/>
+  <text x="72" y="544" font-size="12" font-weight="600" fill="#0F172A">### Advanced</text>
+  <text x="72" y="562" font-size="11" fill="#475569">long subsection, one topic…</text>
+
+  <!-- ============ fixed ============ -->
+  <rect x="380" y="110" width="380" height="560" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="400" y="140" font-size="15" font-weight="600" fill="#0F172A">fixed — size + overlap</text>
+  <text x="400" y="160" font-size="11" fill="#475569">equal budgets, breaks at word boundaries,</text>
+  <text x="400" y="175" font-size="11" fill="#475569">each chunk overlaps the last by 200 chars</text>
+
+  <rect x="400" y="205" width="320" height="100" rx="6" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="412" y="226" font-size="11" fill="#475569">chunk 0 · chars 0–1200</text>
+  <rect x="400" y="285" width="320" height="20" fill="#E2E8F0"/>
+  <rect x="400" y="285" width="320" height="120" rx="6" fill="none" stroke="#94A3B8"/>
+  <text x="412" y="326" font-size="11" fill="#475569">chunk 1 · starts 200 chars back (overlap,</text>
+  <text x="412" y="342" font-size="11" fill="#475569">shaded) — cuts straight across ## Install</text>
+  <rect x="400" y="385" width="320" height="20" fill="#E2E8F0"/>
+  <rect x="400" y="385" width="320" height="120" rx="6" fill="none" stroke="#94A3B8"/>
+  <text x="412" y="426" font-size="11" fill="#475569">chunk 2 · crosses Configure into Advanced</text>
+  <rect x="400" y="485" width="320" height="20" fill="#E2E8F0"/>
+  <rect x="400" y="485" width="320" height="100" rx="6" fill="none" stroke="#94A3B8"/>
+  <text x="412" y="526" font-size="11" fill="#475569">chunk 3 · tail</text>
+
+  <text x="400" y="612" font-size="11" fill="#155E75">+ simple, predictable sizes; the baseline</text>
+  <text x="400" y="628" font-size="11" fill="#BE123C">− ignores structure: a chunk can straddle</text>
+  <text x="400" y="643" font-size="11" fill="#BE123C">   two sections and dilute both topics</text>
+
+  <!-- ============ heading ============ -->
+  <rect x="800" y="110" width="380" height="560" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="820" y="140" font-size="15" font-weight="600" fill="#0F172A">heading — structure-aware</text>
+  <text x="820" y="160" font-size="11" fill="#475569">split on headings, greedily pack short sections,</text>
+  <text x="820" y="175" font-size="11" fill="#475569">fixed-split an oversized one (path kept)</text>
+
+  <rect x="820" y="205" width="320" height="130" rx="6" fill="#EEF2FF" stroke="#818CF8"/>
+  <text x="832" y="226" font-size="11" font-weight="600" fill="#0F172A">chunk 0 · path: Guide</text>
+  <text x="832" y="244" font-size="11" fill="#475569"># Guide intro + ## Install packed together</text>
+  <text x="832" y="260" font-size="11" fill="#475569">(both small; Install's heading stays visible</text>
+  <text x="832" y="276" font-size="11" fill="#475569">inside the chunk text)</text>
+
+  <rect x="820" y="345" width="320" height="110" rx="6" fill="#FFF7ED" stroke="#D97706"/>
+  <text x="832" y="366" font-size="11" font-weight="600" fill="#0F172A">chunk 1 · path: Guide › Configure</text>
+  <text x="832" y="384" font-size="11" fill="#475569">exactly the Configure section — but still</text>
+  <text x="832" y="400" font-size="11" fill="#475569">carries its two unmarked topics as one</text>
+
+  <rect x="820" y="465" width="320" height="110" rx="6" fill="#FFF1F2" stroke="#BE123C"/>
+  <text x="832" y="486" font-size="11" font-weight="600" fill="#0F172A">chunk 2 · path: Guide › Configure › Advanced</text>
+  <text x="832" y="504" font-size="11" fill="#475569">the heading path becomes citation metadata:</text>
+  <text x="832" y="520" font-size="11" fill="#475569">"Guide › Configure › Advanced, page 12"</text>
+
+  <text x="820" y="612" font-size="11" fill="#155E75">+ chunks match how authors organised ideas;</text>
+  <text x="820" y="628" font-size="11" fill="#155E75">   paths make citations humane · the default</text>
+  <text x="820" y="643" font-size="11" fill="#BE123C">− trusts the author: a sloppy section still mixes topics</text>
+
+  <!-- ============ semantic ============ -->
+  <rect x="1220" y="110" width="340" height="560" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="1240" y="140" font-size="15" font-weight="600" fill="#0F172A">semantic — topic boundaries</text>
+  <text x="1240" y="160" font-size="11" fill="#475569">split where adjacent-sentence cosine drops</text>
+  <text x="1240" y="175" font-size="11" fill="#475569">below 0.55; size cap is soft by one sentence</text>
+
+  <rect x="1240" y="205" width="280" height="120" rx="6" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="1252" y="226" font-size="11" fill="#475569">chunk 0 · Guide intro + Install</text>
+  <text x="1252" y="242" font-size="11" fill="#475569">(similar sentences, no boundary)</text>
+
+  <line x1="1240" y1="345" x2="1520" y2="345" stroke="#6D28D9" stroke-width="2" stroke-dasharray="6 4"/>
+  <text x="1252" y="338" font-size="10" fill="#6D28D9">cosine dip: keys → timeouts</text>
+
+  <rect x="1240" y="355" width="280" height="90" rx="6" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="1252" y="376" font-size="11" fill="#475569">chunk 1 · Configure: the keys topic</text>
+
+  <rect x="1240" y="455" width="280" height="90" rx="6" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="1252" y="476" font-size="11" fill="#475569">chunk 2 · Configure: timeouts +</text>
+  <text x="1252" y="492" font-size="11" fill="#475569">Advanced (one continuous topic)</text>
+
+  <text x="1240" y="592" font-size="11" fill="#155E75">+ the only one that splits the two-topic</text>
+  <text x="1240" y="608" font-size="11" fill="#155E75">   Configure section correctly</text>
+  <text x="1240" y="628" font-size="11" fill="#BE123C">− costs an embedding per sentence at ingest;</text>
+  <text x="1240" y="643" font-size="11" fill="#BE123C">   no heading paths; may not earn its keep</text>
+
+  <!-- bake-off strip -->
+  <rect x="40" y="700" width="1520" height="150" rx="10" fill="#EEF2FF" stroke="#818CF8"/>
+  <text x="60" y="732" font-size="16" font-weight="600" fill="#0F172A">The bake-off decides (Phase 4)</text>
+  <text x="60" y="758" font-size="13" fill="#334155">Same 50+ question golden set, three full runs — one per strategy — compared on retrieval recall@5, faithfulness, citation accuracy, and cost to ingest.</text>
+  <text x="60" y="782" font-size="13" fill="#334155">The winner becomes CHUNK_STRATEGY's default; the table goes in the README and the case study. Every chunk records its strategy, so mixed experiments stay auditable.</text>
+  <text x="60" y="814" font-size="12" fill="#6D28D9">Invariants tested for all three (not assumed): full coverage — no text lost · offsets faithful (chunk.text == doc.text[start:end]) · sizes bounded · heading paths correct.</text>
+
+  <text x="40" y="884" font-size="11" fill="#94A3B8">Librarian · Project 6 · librarian/ingest/chunkers.py (~160 lines, zero framework) · tests/test_chunkers.py proves the invariants</text>
+</svg>

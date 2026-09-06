@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1010" viewBox="0 0 1600 1010" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
+  </defs>
+  <rect width="1600" height="1010" fill="#FFFFFF"/>
+  <text x="40" y="46" font-size="26" font-weight="600" fill="#0F172A">Librarian — architecture overview</text>
+  <text x="40" y="72" font-size="14" fill="#475569">RAG with hybrid search: one chunk store feeds two indexes; answers are grounded, cited, verified — or honestly refused.</text>
+
+  <!-- ================= INGEST panel ================= -->
+  <rect x="40" y="100" width="430" height="600" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="60" y="130" font-size="16" font-weight="600" fill="#0F172A">1 · Ingest</text>
+
+  <rect x="70" y="150" width="370" height="52" rx="10" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="90" y="172" font-size="14" font-weight="600" fill="#0F172A">Loader</text>
+  <text x="90" y="190" font-size="12" fill="#475569">md · txt · html · pdf → headed plaintext + page offsets</text>
+
+  <line x1="255" y1="202" x2="255" y2="228" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="70" y="230" width="370" height="150" rx="10" fill="#EEF2FF" stroke="#818CF8"/>
+  <text x="90" y="254" font-size="14" font-weight="600" fill="#0F172A">Chunkers — three switchable strategies</text>
+  <rect x="90" y="268" width="100" height="44" rx="8" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="140" y="286" font-size="12" fill="#0F172A" text-anchor="middle">fixed</text>
+  <text x="140" y="302" font-size="10" fill="#475569" text-anchor="middle">size + overlap</text>
+  <rect x="200" y="268" width="100" height="44" rx="8" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="250" y="286" font-size="12" fill="#0F172A" text-anchor="middle">heading</text>
+  <text x="250" y="302" font-size="10" fill="#475569" text-anchor="middle">section-aware</text>
+  <rect x="310" y="268" width="110" height="44" rx="8" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="365" y="286" font-size="12" fill="#0F172A" text-anchor="middle">semantic</text>
+  <text x="365" y="302" font-size="10" fill="#475569" text-anchor="middle">topic boundaries</text>
+  <text x="90" y="336" font-size="11" fill="#6D28D9">Every chunk records offsets, heading path, page, strategy.</text>
+  <text x="90" y="354" font-size="11" fill="#6D28D9">Phase 4 bake-off picks the winner with numbers.</text>
+
+  <line x1="255" y1="380" x2="255" y2="406" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="70" y="408" width="370" height="52" rx="10" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="90" y="430" font-size="14" font-weight="600" fill="#0F172A">Dedup</text>
+  <text x="90" y="448" font-size="12" fill="#475569">cosine &gt; 0.95 vs dense index → skip (within + across docs)</text>
+
+  <line x1="255" y1="460" x2="255" y2="486" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="70" y="488" width="370" height="70" rx="10" fill="#ECFEFF" stroke="#0E7490"/>
+  <text x="90" y="512" font-size="14" font-weight="600" fill="#155E75">Chunk store  (SQLite)</text>
+  <text x="90" y="530" font-size="12" fill="#475569">the single source of truth — both indexes are always</text>
+  <text x="90" y="546" font-size="12" fill="#475569">built from here, so they cannot drift out of sync</text>
+
+  <!-- store to the indexes (sparse runs over the same chunks — its box says so) -->
+  <line x1="440" y1="508" x2="546" y2="336" stroke="#0E7490" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- corpus note -->
+  <text x="70" y="590" font-size="11" fill="#475569">Demo corpus: the FastAPI docs (public markdown; fetched by a script, never committed).</text>
+  <text x="70" y="608" font-size="11" fill="#475569">Embeddings: nomic-embed-text on Ollama — local, $0, no rate limit.</text>
+
+  <!-- ================= RETRIEVE panel ================= -->
+  <rect x="520" y="100" width="560" height="600" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="540" y="130" font-size="16" font-weight="600" fill="#0F172A">2 · Hybrid retrieval</text>
+
+  <rect x="550" y="150" width="500" height="46" rx="10" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="570" y="170" font-size="13" font-weight="600" fill="#0F172A">Question</text>
+  <text x="570" y="187" font-size="12" fill="#475569">from the API, the dashboard, evals — or Foreman's research agent</text>
+
+  <line x1="700" y1="196" x2="640" y2="248" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="900" y1="196" x2="960" y2="248" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="550" y="250" width="235" height="110" rx="10" fill="#EEF2FF" stroke="#818CF8"/>
+  <text x="570" y="274" font-size="14" font-weight="600" fill="#0F172A">Dense — meaning</text>
+  <text x="570" y="294" font-size="12" fill="#475569">embed the query, cosine</text>
+  <text x="570" y="310" font-size="12" fill="#475569">top-10 from ChromaDB</text>
+  <text x="570" y="332" font-size="11" fill="#6D28D9">one collection per embedding</text>
+  <text x="570" y="348" font-size="11" fill="#6D28D9">model — spaces never mix</text>
+
+  <rect x="815" y="250" width="235" height="110" rx="10" fill="#FFF7ED" stroke="#D97706"/>
+  <text x="835" y="274" font-size="14" font-weight="600" fill="#0F172A">Sparse — exact tokens</text>
+  <text x="835" y="294" font-size="12" fill="#475569">BM25 top-10 over the same</text>
+  <text x="835" y="310" font-size="12" fill="#475569">chunks; \w+ keeps identifiers</text>
+  <text x="835" y="332" font-size="11" fill="#B45309">catches response_model,</text>
+  <text x="835" y="348" font-size="11" fill="#B45309">error codes, config keys</text>
+
+  <line x1="667" y1="360" x2="740" y2="412" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="932" y1="360" x2="860" y2="412" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="620" y="414" width="360" height="84" rx="10" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="640" y="438" font-size="14" font-weight="600" fill="#0F172A">Reciprocal Rank Fusion → top-20</text>
+  <text x="640" y="458" font-size="12" fill="#475569">score = 0.7/(60+rank_dense) + 0.3/(60+rank_sparse)</text>
+  <text x="640" y="478" font-size="11" fill="#475569">rank-based on purpose: cosine and BM25 scores are</text>
+  <text x="640" y="492" font-size="11" fill="#475569">incomparable scales — ranks need no normalisation</text>
+
+  <line x1="800" y1="498" x2="800" y2="524" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="620" y="526" width="360" height="66" rx="10" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="640" y="550" font-size="14" font-weight="600" fill="#0F172A">Cross-encoder rerank → top-5</text>
+  <text x="640" y="570" font-size="12" fill="#475569">bge-reranker-v2-m3, CPU · scores (query, chunk) jointly</text>
+  <text x="640" y="585" font-size="11" fill="#475569">unavailable → degrades loudly to fused order</text>
+
+  <text x="550" y="628" font-size="11" fill="#475569">Modes: hybrid · dense-only · sparse-only — so "hybrid wins"</text>
+  <text x="550" y="644" font-size="11" fill="#475569">is a measured claim. Every hit keeps its rank at every stage.</text>
+
+  <!-- Foreman hook -->
+  <rect x="550" y="656" width="500" height="34" rx="10" fill="#FFF1F2" stroke="#BE123C"/>
+  <text x="570" y="678" font-size="12" fill="#BE123C">Foreman (Project 15) mounts this facade as its search_docs tool — library-first.</text>
+
+  <!-- retrieve to answer -->
+  <line x1="980" y1="559" x2="1128" y2="559" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="1010" y="548" font-size="11" fill="#475569">5 numbered</text>
+  <text x="1010" y="576" font-size="11" fill="#475569">context blocks</text>
+
+  <!-- ================= ANSWER panel ================= -->
+  <rect x="1130" y="100" width="430" height="600" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="1150" y="130" font-size="16" font-weight="600" fill="#0F172A">3 · Grounded answer  (Phase 3)</text>
+
+  <rect x="1160" y="150" width="370" height="84" rx="10" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="1180" y="174" font-size="14" font-weight="600" fill="#0F172A">Generator  (role chain)</text>
+  <text x="1180" y="194" font-size="12" fill="#475569">answers ONLY from the numbered blocks,</text>
+  <text x="1180" y="210" font-size="12" fill="#475569">cites [1] [2] … — retrieved text is data,</text>
+  <text x="1180" y="226" font-size="12" fill="#475569">never instructions</text>
+
+  <line x1="1345" y1="234" x2="1345" y2="260" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="1160" y="262" width="370" height="84" rx="10" fill="#EEF2FF" stroke="#818CF8"/>
+  <text x="1180" y="286" font-size="14" font-weight="600" fill="#0F172A">Citation verifier — different family</text>
+  <text x="1180" y="306" font-size="12" fill="#475569">does chunk [n] actually support the claim</text>
+  <text x="1180" y="322" font-size="12" fill="#475569">it is attached to? unsupported → flagged,</text>
+  <text x="1180" y="338" font-size="12" fill="#475569">never silently kept</text>
+
+  <line x1="1345" y1="346" x2="1345" y2="372" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="1160" y="374" width="370" height="70" rx="10" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="1180" y="398" font-size="14" font-weight="600" fill="#0F172A">Confidence gate</text>
+  <text x="1180" y="418" font-size="12" fill="#475569">retrieval score · citation coverage ·</text>
+  <text x="1180" y="434" font-size="12" fill="#475569">completeness → composite</text>
+
+  <line x1="1250" y1="444" x2="1250" y2="474" stroke="#0E7490" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="1440" y1="444" x2="1440" y2="474" stroke="#B45309" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="1160" y="476" width="175" height="96" rx="10" fill="#ECFEFF" stroke="#0E7490"/>
+  <text x="1180" y="500" font-size="13" font-weight="600" fill="#155E75">Answer</text>
+  <text x="1180" y="520" font-size="11" fill="#475569">with verified [n]</text>
+  <text x="1180" y="536" font-size="11" fill="#475569">citations: source,</text>
+  <text x="1180" y="552" font-size="11" fill="#475569">heading path, page</text>
+
+  <rect x="1355" y="476" width="175" height="96" rx="10" fill="#FFF7ED" stroke="#D97706"/>
+  <text x="1375" y="500" font-size="13" font-weight="600" fill="#B45309">Refusal</text>
+  <text x="1375" y="520" font-size="11" fill="#475569">"not in the corpus":</text>
+  <text x="1375" y="536" font-size="11" fill="#475569">what was found, what</text>
+  <text x="1375" y="552" font-size="11" fill="#475569">was not, where to look</text>
+
+  <text x="1160" y="606" font-size="11" fill="#475569">A refusal is a designed first-class outcome —</text>
+  <text x="1160" y="622" font-size="11" fill="#475569">never a fabricated best-effort guess.</text>
+  <text x="1160" y="648" font-size="11" fill="#475569">$0 default chains; gpt-6-astra is the paid opt-in</text>
+  <text x="1160" y="664" font-size="11" fill="#475569">(dropped unless ENABLE_PAID_PROVIDERS=true).</text>
+
+  <!-- ================= guarantees strip ================= -->
+  <rect x="40" y="730" width="1520" height="240" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="60" y="762" font-size="16" font-weight="600" fill="#0F172A">What the eval harness enforces (Phase 4 — the PRD §7 gate)</text>
+
+  <rect x="60" y="784" width="355" height="160" rx="10" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="80" y="810" font-size="13" font-weight="600" fill="#0F172A">Faithfulness ≥ 0.90</text>
+  <text x="80" y="832" font-size="12" fill="#475569">every claim in the answer is grounded</text>
+  <text x="80" y="848" font-size="12" fill="#475569">in the retrieved context — measured by</text>
+  <text x="80" y="864" font-size="12" fill="#475569">an LLM judge on a 50+ question</text>
+  <text x="80" y="880" font-size="12" fill="#475569">hand-written golden set</text>
+
+  <rect x="435" y="784" width="355" height="160" rx="10" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="455" y="810" font-size="13" font-weight="600" fill="#0F172A">Citation accuracy ≥ 0.85</text>
+  <text x="455" y="832" font-size="12" fill="#475569">verified claim-citation pairs — the</text>
+  <text x="455" y="848" font-size="12" fill="#475569">quality layer most RAG systems skip;</text>
+  <text x="455" y="864" font-size="12" fill="#475569">the verifier is a different model family</text>
+  <text x="455" y="880" font-size="12" fill="#475569">than the generator</text>
+
+  <rect x="810" y="784" width="355" height="160" rx="10" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="830" y="810" font-size="13" font-weight="600" fill="#0F172A">Hybrid beats dense-only</text>
+  <text x="830" y="832" font-size="12" fill="#475569">on exact-token queries, strictly —</text>
+  <text x="830" y="848" font-size="12" fill="#475569">the project's thesis, demonstrated</text>
+  <text x="830" y="864" font-size="12" fill="#475569">with recall@5 numbers and a</text>
+  <text x="830" y="880" font-size="12" fill="#475569">side-by-side dashboard toggle</text>
+
+  <rect x="1185" y="784" width="355" height="160" rx="10" fill="#FFFFFF" stroke="#94A3B8"/>
+  <text x="1205" y="810" font-size="13" font-weight="600" fill="#0F172A">100% honest refusals</text>
+  <text x="1205" y="832" font-size="12" fill="#475569">questions whose answer is not in the</text>
+  <text x="1205" y="848" font-size="12" fill="#475569">corpus must get the structured refusal,</text>
+  <text x="1205" y="864" font-size="12" fill="#475569">never a fabrication — hallucinating</text>
+  <text x="1205" y="880" font-size="12" fill="#475569">on these fails the build</text>
+
+  <text x="60" y="990" font-size="11" fill="#94A3B8">Librarian · Project 6 · docs/Architecture.md is the authoritative text version · style shared with Foreman (Project 15)</text>
+</svg>

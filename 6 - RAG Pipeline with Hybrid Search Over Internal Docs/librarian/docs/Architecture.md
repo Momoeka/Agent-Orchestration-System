@@ -1,5 +1,9 @@
 # Architecture — Librarian
 
+Diagrams (SVG + PNG, style shared with Foreman): [`diagrams/01-architecture-overview`](diagrams/01-architecture-overview.svg) ·
+[`diagrams/02-hybrid-retrieval`](diagrams/02-hybrid-retrieval.svg) (a real traced query) ·
+[`diagrams/03-chunking-strategies`](diagrams/03-chunking-strategies.svg).
+
 ## 1. Overview
 
 ```

@@ -4,6 +4,17 @@ Running log across coding sessions. Read this first; update it last. Newest entr
 
 ---
 
+## 2026-09-06 — Diagrams (docs/diagrams/, Foreman's visual style)
+
+Three hand-written SVGs + PNG exports (headless Chrome renders them): 01 architecture
+overview (three panels + the four eval guarantees), 02 hybrid retrieval as **the real traced
+query** from the Phase 2 live smoke (dense#5 + sparse#3 → RRF 0.7/65 + 0.3/63 = 0.0155 →
+hybrid#2), 03 the three chunkers over one document with trade-offs and the bake-off strip.
+README shows 01; Architecture.md links all three. Re-render:
+`chrome --headless=new --screenshot=<png> --window-size=1600,<h> <svg>`.
+
+---
+
 ## 2026-09-05 — Phase 2: the hybrid retrieval engine
 
 ### Built
