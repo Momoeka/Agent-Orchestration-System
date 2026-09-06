@@ -16,7 +16,7 @@ from librarian.types import Citation, SearchHit
 _CITE = re.compile(r"\[(\d+)\]")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 # Models cite in whatever brackets their tokenizer favours — seen live: gpt-oss wrote 【1】.
-_BRACKET_VARIANTS = str.maketrans({"【": "[", "】": "]", "［": "[", "］": "]"})
+_BRACKET_VARIANTS = str.maketrans({"【": "[", "】": "]", "［": "[", "］": "]"})  # noqa: RUF001
 
 
 def normalize_citation_brackets(text: str) -> str:
