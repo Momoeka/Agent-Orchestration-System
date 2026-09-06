@@ -12,7 +12,9 @@ index format.
 
 ![Architecture overview](docs/diagrams/01-architecture-overview.png)
 
-Status: **Phase 2 (hybrid retrieval) done, live-verified**. Specification: [`docs/PRD.md`](docs/PRD.md) ·
+Status: **Phase 3 (grounded answers with verified citations) done, live-verified**. New here?
+Read [`docs/EXPLAINED.md`](docs/EXPLAINED.md) first — the plain-language version.
+Specification: [`docs/PRD.md`](docs/PRD.md) ·
 [`docs/Architecture.md`](docs/Architecture.md) · [`docs/Rules.md`](docs/Rules.md) ·
 [`docs/Phases.md`](docs/Phases.md) · [`docs/Design.md`](docs/Design.md) · build log:
 [`docs/Memory.md`](docs/Memory.md).

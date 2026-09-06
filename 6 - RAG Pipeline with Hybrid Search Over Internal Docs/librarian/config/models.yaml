@@ -1,0 +1,35 @@
+# Librarian — chat role chains. $0 by default: paid entries are DROPPED by the loader unless
+# ENABLE_PAID_PROVIDERS=true (same rule as Foreman), so a clean clone runs the free chains.
+# Known gpt-6-astra quirks (handled in providers.py): the route rejects `temperature`;
+# bundled tier is 200k input tokens/hour — 429 falls through to the free entries.
+
+providers:
+  mistral:
+    base_url_env: MISTRAL_BASE_URL
+    api_key_env: MISTRAL_API_KEY
+    free_tier: true
+  groq:
+    base_url_env: GROQ_BASE_URL
+    api_key_env: GROQ_API_KEY
+    free_tier: true
+  gemini:
+    base_url_env: GEMINI_BASE_URL
+    api_key_env: GEMINI_API_KEY
+    free_tier: true
+  explabs:
+    base_url_env: EXPLABS_BASE_URL
+    api_key_env: EXPLABS_API_KEY
+    paid: true
+
+roles:
+  generator:                     # writes the grounded answer from the numbered context blocks
+    chain:
+      - {provider: explabs, model: gpt-6-astra}            # paid opt-in; first when enabled
+      - {provider: mistral, model: mistral-medium-latest}
+      - {provider: groq,    model: openai/gpt-oss-120b}
+      - {provider: gemini,  model: gemini-3.5-flash}
+  judge:                         # verifies citations; a different family from the generator's
+    chain:                       # primary entries (a model grading its own family shares its
+      - {provider: gemini,  model: gemini-3.5-flash}       # blind spots). If the generator
+      - {provider: groq,    model: qwen/qwen3.8-27b}       # ever falls to gemini, the qwen
+                                                           # entry keeps the families apart.

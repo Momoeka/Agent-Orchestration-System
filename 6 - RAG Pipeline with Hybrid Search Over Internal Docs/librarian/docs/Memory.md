@@ -4,6 +4,45 @@ Running log across coding sessions. Read this first; update it last. Newest entr
 
 ---
 
+## 2026-09-06 — Phase 3: grounded answers, verified citations, honest refusals + EXPLAINED.md
+
+### Built
+- `config/models.yaml` + `llm/roles.py`: generator chain (explabs gpt-6-astra opt-in →
+  mistral → groq gpt-oss-120b → gemini) and judge chain (gemini → groq qwen — a different
+  family from the generator's primaries). Same drop-paid-unless-enabled loader as Foreman.
+- `llm/providers.py`: sync `ChatProvider` (temperature-drop retry and list-content
+  flattening baked in — both Astra lessons) + `ChainedChat` (fall through on failure, two
+  backoff rounds) + the `Chat` protocol so tests fake the LLM cleanly.
+- `answer/`: `generate.py` (numbered context blocks; answer ONLY from blocks; cite [n];
+  fixed `NOT IN CORPUS` marker for refusals), `verify.py` (one judge call per answer — free
+  tiers can't afford per-pair calls; judge outage leaves verdicts None = unverified, which
+  scores as unsupported: fail toward honesty), `confidence.py` (agreement-based retrieval
+  score · citation coverage · completeness → 0.35/0.45/0.20 composite; weights are Phase 4
+  tuning targets), `pipeline.py` (`ask()` + `build_pipeline()`). `scripts/ask.py` CLI.
+  `docs/EXPLAINED.md` — the plain-language version, written after the author said
+  "I understand nothing" (Foreman's lesson: that feedback is the most useful review).
+
+### Verified
+- Unit **32 passed** · ruff · mypy strict.
+- **Live answer**: "How do I return a JSONResponse with a custom status code?" → correct
+  answer with a code example, both citations judged `ok` with written reasons, composite
+  **1.0**, 10 s (generator groq/gpt-oss-120b, judge gemini-3.5-flash).
+- **Live refusal**: enterprise-pricing question → `NOT IN CORPUS` naming what the blocks do
+  contain and what is missing, composite 0.358, 3 s. Both directions of the gate work.
+- **The gate caught a real defect before the fix**: gpt-oss cited with fullwidth brackets
+  (【1】); the parser saw zero citations → coverage 0 → a *correct* answer was refused.
+  Failing toward honesty worked as designed; `normalize_citation_brackets` now maps
+  【】［］ → [] before parsing, and the displayed text matches the parsed [n].
+- Windows console is cp1252 → `ask.py` reconfigures stdout to UTF-8 (a U+202F in a model
+  answer crashed the first print).
+
+### Astra status change (affects Foreman too)
+- explabs now 429s with `free_tier_requires_payment`: the gpt-6-astra free tier wants a card
+  on file (+$1 top-up) since ~Sep 6. BYOK unaffected. Until the author adds a card, the
+  chains simply fall through to the free entries — observed doing exactly that, twice.
+
+---
+
 ## 2026-09-06 — Diagrams (docs/diagrams/, Foreman's visual style)
 
 Three hand-written SVGs + PNG exports (headless Chrome renders them): 01 architecture

@@ -18,12 +18,20 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai"
 
-    # --- chat providers (Phase 3: generator / judge role chains) ---
+    # --- chat providers (generator / judge role chains, config/models.yaml) ---
     mistral_api_key: str = ""
+    mistral_base_url: str = "https://api.mistral.ai/v1"
     groq_api_key: str = ""
+    groq_base_url: str = "https://api.groq.com/openai/v1"
     enable_paid_providers: bool = False
     explabs_api_key: str = ""
     explabs_base_url: str = "https://api.experientiallabs.ai/v1"
+    models_config_path: Path = Path("config/models.yaml")
+
+    # --- answering (Phase 3) ---
+    answer_context_k: int = 5
+    answer_max_tokens: int = 1200
+    answer_confidence_threshold: float = 0.55
 
     # --- stores ---
     chroma_host: str = ""  # empty = local persistent client at chroma_path (zero infra)
@@ -47,6 +55,16 @@ class Settings(BaseSettings):
     chunk_strategy: str = "heading"
     chunk_size: int = 1200
     chunk_overlap: int = 200
+
+
+    def env_value(self, env_name: str) -> str:
+        """Resolve a value by its env-variable name (e.g. ``MISTRAL_API_KEY``) so
+        config/models.yaml can reference env names without anything reading os.environ."""
+        attr = env_name.lower()
+        if not hasattr(self, attr):
+            raise KeyError(f"Unknown setting referenced by models config: {env_name}")
+        value = getattr(self, attr)
+        return "" if value is None else str(value)
 
 
 @lru_cache(maxsize=1)

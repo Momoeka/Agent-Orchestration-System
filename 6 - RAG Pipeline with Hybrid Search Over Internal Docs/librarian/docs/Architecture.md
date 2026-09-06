@@ -48,6 +48,7 @@ on top of it. Foreman imports the same retrieval entry point the API serves.
 | Generation | `librarian/answer/generate.py` | grounded prompt, numbered context, `[n]` citations |
 | Verification | `librarian/answer/verify.py` | claim-citation pairs to a judge from a different family |
 | Confidence | `librarian/answer/confidence.py` | retrieval score + citation coverage + completeness → composite; refusal below threshold |
+| Ask pipeline | `librarian/answer/pipeline.py` | `ask()`: retrieve → generate → verify → decide; `build_pipeline()` wires the stack from settings |
 | LLM access | `librarian/llm/` | role chains from `config/models.yaml`, same loader semantics as Foreman |
 | Evals | `evals/` | golden set, runner (JSONL-resumable), metrics, baseline diff, chunking bake-off |
 | API | `apps/api/` | FastAPI: routes → services; no retrieval logic here |

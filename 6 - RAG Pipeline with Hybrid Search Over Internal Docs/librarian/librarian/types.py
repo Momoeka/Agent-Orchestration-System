@@ -88,3 +88,41 @@ class SearchHit(BaseModel):
             if s is not None:
                 return s
         return 0.0
+
+
+class Citation(BaseModel):
+    """One [n] reference in the answer, with its verification verdict.
+
+    ``supported`` is True/False from the judge, or None when the judge could not run —
+    unverified is shown as unverified, never upgraded (Rules.md §2).
+    """
+
+    n: int
+    sentence: str
+    chunk_id: str = ""
+    source: str = ""
+    heading_path: list[str] = Field(default_factory=list)
+    page: int | None = None
+    supported: bool | None = None
+    note: str = ""
+
+
+class Confidence(BaseModel):
+    retrieval: float = 0.0
+    citation_coverage: float = 0.0
+    completeness: float = 0.0
+    composite: float = 0.0
+
+
+class Answer(BaseModel):
+    """What `ask()` returns: the answer or a structured refusal, never a bare guess."""
+
+    question: str
+    text: str
+    refusal: bool
+    citations: list[Citation] = Field(default_factory=list)
+    confidence: Confidence = Field(default_factory=Confidence)
+    hits: list[SearchHit] = Field(default_factory=list)
+    generator: str = ""
+    judge: str = ""
+    elapsed_s: float = 0.0
