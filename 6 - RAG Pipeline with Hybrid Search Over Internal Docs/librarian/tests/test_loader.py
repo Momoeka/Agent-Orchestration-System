@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import fitz
+import pymupdf
 import pytest
 
 from librarian.ingest.loader import load_dir, load_path, supported
@@ -42,7 +42,7 @@ def test_html_keeps_headings_drops_junk(tmp_path: Path) -> None:
 
 def test_pdf_pages_and_offsets(tmp_path: Path) -> None:
     f = tmp_path / "d.pdf"
-    pdf = fitz.open()
+    pdf = pymupdf.open()
     for line in ("alpha page", "beta page"):
         page = pdf.new_page()
         page.insert_text((72, 72), line)

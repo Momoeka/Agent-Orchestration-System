@@ -62,3 +62,29 @@ class Chunk(BaseModel):
     @property
     def n_chars(self) -> int:
         return len(self.text)
+
+
+class SearchHit(BaseModel):
+    """A retrieved chunk with its score at every stage — the dashboard and evals show all of
+    them, so a hit can always explain *why* it ranked where it did."""
+
+    chunk_id: str
+    doc_id: str
+    source: str
+    text: str
+    heading_path: list[str] = Field(default_factory=list)
+    page: int | None = None
+    dense_rank: int | None = None
+    dense_score: float | None = None
+    sparse_rank: int | None = None
+    sparse_score: float | None = None
+    rrf_score: float | None = None
+    rerank_score: float | None = None
+
+    @property
+    def score(self) -> float:
+        """The best available final score: rerank > fused > single-index."""
+        for s in (self.rerank_score, self.rrf_score, self.dense_score, self.sparse_score):
+            if s is not None:
+                return s
+        return 0.0

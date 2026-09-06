@@ -33,7 +33,8 @@ on top of it. Foreman imports the same retrieval entry point the API serves.
 |---|---|---|
 | Ingestion | `librarian/ingest/loader.py` | md/txt/html/pdf → `Document` (headed plaintext, page offsets) |
 | Chunking | `librarian/ingest/chunkers.py` | fixed / heading / semantic → `Chunk` (offsets, heading path, page, strategy) |
-| Chunk store | `librarian/index/store.py` | the single source of truth both indexes are built from; dedup at insert |
+| Chunk store | `librarian/index/store.py` | the single source of truth both indexes are built from (SQLite, file-based) |
+| Ingestion pipeline | `librarian/index/indexer.py` | load → chunk → embed → dedup (cosine > 0.95 vs the dense index) → store + index |
 | Dense index | `librarian/index/dense.py` | Chroma; **one collection per embedding model** (a fallback embedder is a different vector space) |
 | Sparse index | `librarian/index/sparse.py` | BM25 (`rank_bm25`) rebuilt from the chunk store; in sync by construction |
 | Embeddings | `librarian/llm/embeddings.py` | `nomic-embed-text` via Ollama; Gemini free endpoint fallback; satisfies the `Embedder` protocol |

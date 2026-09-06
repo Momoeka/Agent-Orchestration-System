@@ -4,6 +4,48 @@ Running log across coding sessions. Read this first; update it last. Newest entr
 
 ---
 
+## 2026-09-05 — Phase 2: the hybrid retrieval engine
+
+### Built
+- `config.py` (Settings — the only env reader; retrieval knobs default to PRD values and are
+  tuned in Phase 4, not by taste) · `errors.py` (Retryable/NonRetryable, Foreman's taxonomy).
+- `llm/embeddings.py`: one `OpenAICompatEmbedder` for Ollama and Gemini; its `space_id` names
+  the vector space and hence the Chroma collection — no silent fallback between models.
+- `index/`: `store.py` (SQLite ChunkStore — the single source of truth), `dense.py` (Chroma;
+  local `PersistentClient` by default so a fresh clone needs zero infra, `HttpClient` when
+  `CHROMA_HOST` is set; collection per space), `sparse.py` (BM25, `\w+` tokens keep
+  `response_model`-style identifiers whole; rebuilt from the store = in sync by construction),
+  `indexer.py` (ingest pipeline with per-chunk dedup at cosine > 0.95, catching intra- and
+  cross-document repeats).
+- `retrieve/`: `fuse.py` (weighted RRF, rank-based on purpose — dense and BM25 scores are
+  incomparable scales), `rerank.py` (cross-encoder behind `uv sync --group rerank`, degrading
+  loudly to fused order when absent), `retriever.py` (the facade: modes hybrid/dense/sparse so
+  the PRD's hybrid-beats-dense claim is measurable; every `SearchHit` carries its rank and
+  score at each stage).
+- Scripts: `fetch_corpus.py` (shallow-clone FastAPI docs → `data/corpus`), `seed.py`
+  (resumable-ish: deterministic chunk ids + dedup make re-runs safe), `search.py` (CLI demo,
+  `--compare` prints hybrid vs dense side by side).
+
+### Verified
+- Unit **23 passed** · ruff · mypy strict. Highlights: RRF math checked by hand
+  (`1/62 + 1/61` for the doubly-ranked id), dedup skips repeats within and across documents
+  (store count == dense count == 1), BM25 puts the `response_model` chunk first where the
+  bag-of-words dense fake would not, per-stage fields land on `SearchHit` in every mode.
+- **Live against Ollama** (60 FastAPI docs, heading strategy): 431 chunks in 180 s, 3 near-
+  duplicates skipped, store count == dense count. Query *"how do I return a custom
+  JSONResponse with a status_code"*: hybrid top-3 are the right sections with heading paths;
+  the "Returning a custom `Response`" chunk sat at dense#5 but sparse#3 and fusion lifted it
+  to hybrid#2 — the PRD's hybrid thesis visible on the first real query.
+
+### Decisions
+1. **Local Chroma by default** (file-based PersistentClient): a reviewer cloning the repo needs
+   Ollama and nothing else; `CHROMA_HOST` switches to the shared server that Foreman's compose
+   runs.
+2. The cross-encoder lives behind an optional dependency group; `uv sync` stays light and the
+   degrade path (fused order) is explicit and logged, per Rules.md §3.
+
+---
+
 ## 2026-09-05 — Full spec set written (root Rules.txt compliance)
 
 - `PRD.md` (problem, users, MVP scope, the §7 metric targets that gate "done", risks, open

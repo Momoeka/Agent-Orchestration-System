@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import fitz  # pymupdf
+import pymupdf
 from bs4 import BeautifulSoup, Tag
 
 from librarian.types import Document, Format
@@ -103,7 +103,7 @@ def _load_html(path: Path) -> Document:
 
 def _load_pdf(path: Path) -> Document:
     pages: list[str] = []
-    with fitz.open(path) as pdf:
+    with pymupdf.open(path) as pdf:
         for page in pdf:
             pages.append(_normalise(str(page.get_text())))
     offsets: list[int] = []

@@ -9,6 +9,9 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "pymupdf>=1.24",
     "pyyaml>=6.0",
+    "openai>=1.30",
+    "chromadb>=0.5",
+    "rank-bm25>=0.2.2",
 ]
 
 [dependency-groups]
@@ -19,6 +22,9 @@ dev = [
     "mypy>=1.10",
     "types-pyyaml",
     "types-beautifulsoup4",
+]
+rerank = [
+    "sentence-transformers>=3.0",
 ]
 
 [tool.pytest.ini_options]
@@ -38,7 +44,7 @@ strict = true
 files = ["librarian", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["fitz", "fitz.*"]
+module = ["pymupdf", "rank_bm25", "sentence_transformers", "chromadb", "chromadb.*"]
 ignore_missing_imports = true
 
 [tool.uv]
