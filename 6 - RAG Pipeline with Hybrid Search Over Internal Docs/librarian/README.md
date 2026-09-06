@@ -10,8 +10,10 @@ Built as a **library with a thin API**: Foreman ([Project 15](../../15%20-%20Age
 will mount it as its `search_docs` tool, and both share the ChromaDB + `nomic-embed-text`
 index format.
 
-Status: **Phase 1 (ingestion + chunking)** — see [`docs/Phases.md`](docs/Phases.md) for the plan
-and [`docs/Memory.md`](docs/Memory.md) for the build log.
+Status: **Phase 1 (ingestion + chunking)**. Specification: [`docs/PRD.md`](docs/PRD.md) ·
+[`docs/Architecture.md`](docs/Architecture.md) · [`docs/Rules.md`](docs/Rules.md) ·
+[`docs/Phases.md`](docs/Phases.md) · [`docs/Design.md`](docs/Design.md) · build log:
+[`docs/Memory.md`](docs/Memory.md).
 
 ```bash
 uv sync --dev

@@ -4,6 +4,20 @@ Running log across coding sessions. Read this first; update it last. Newest entr
 
 ---
 
+## 2026-09-05 — Full spec set written (root Rules.txt compliance)
+
+- `PRD.md` (problem, users, MVP scope, the §7 metric targets that gate "done", risks, open
+  decisions), `Architecture.md` (component map, ask-flow, folder structure, config, the
+  Foreman `search_docs` contract), `Rules.md` (stack use/avoid — notably **no LangChain
+  runtime**: the chunkers/RRF/grounding are hand-written on purpose; non-negotiables like one
+  chunk store feeding both indexes and a different-family citation verifier), `Design.md`
+  (evidence-first dashboard: no answer without citations, confidence always visible,
+  hybrid-vs-dense as a first-class toggle).
+- Order note: scaffold + Phase-1 code landed a few hours before the docs; the docs encode the
+  same decisions, nothing was retrofitted to match code accidents.
+
+---
+
 ## 2026-09-05 — Phase 1 started: scaffold, loaders, three chunkers
 
 ### Built
