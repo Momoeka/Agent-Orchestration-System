@@ -50,10 +50,13 @@ def main() -> int:
     if store.counts()["chunks"] == 0:
         print("index is empty; run scripts/seed.py first")
         return 1
+    from librarian.types import Strategy
+
+    strategy = Strategy(settings.chunk_strategy)
     retriever = Retriever(
         store,
-        DenseIndex(build_client(settings), space_id=embedder.space_id),
-        SparseIndex(store.all_chunks()),
+        DenseIndex(build_client(settings), space_id=embedder.space_id, strategy=strategy.value),
+        SparseIndex(store.all_chunks(strategy)),
         embedder,
         build_reranker(settings),
         dense_k=settings.dense_k,

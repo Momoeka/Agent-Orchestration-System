@@ -1,0 +1,61 @@
+# Under-specified questions: a good answer stays grounded while covering the main readings.
+# Success = answered (not refused), grounded, and correct against a broad golden answer.
+
+- id: ambig_handle_errors
+  category: ambiguous
+  difficulty: medium
+  question: How do I handle errors?
+  expected_sources: [handling-errors]
+  golden_answer: >
+    Raise HTTPException for client-facing errors (status code + detail); customise error
+    responses with exception handlers via app.exception_handler, including overriding the
+    validation error handler.
+
+- id: ambig_add_auth
+  category: ambiguous
+  difficulty: hard
+  question: How do I add authentication?
+  expected_sources: [security]
+  golden_answer: >
+    Use the fastapi.security utilities: declare a scheme like OAuth2PasswordBearer as a
+    dependency so endpoints require a token, implement a login path operation that issues
+    tokens, and resolve the current user in a dependency.
+
+- id: ambig_document_api
+  category: ambiguous
+  difficulty: medium
+  question: How do I document my API?
+  expected_sources: [first-steps, metadata]
+  golden_answer: >
+    Docs are generated automatically from your code as OpenAPI (Swagger UI at /docs, ReDoc at
+    /redoc); enrich them with metadata like title, description, version and per-operation
+    tags, summaries and descriptions.
+
+- id: ambig_validate_data
+  category: ambiguous
+  difficulty: medium
+  question: How do I validate data?
+  expected_sources: [body, query-params-str-validations]
+  golden_answer: >
+    Declare types and Pydantic models on parameters and bodies — FastAPI validates
+    automatically and returns clear errors; add constraints with Query/Path/Field options
+    like max_length, ge and pattern.
+
+- id: ambig_return_files
+  category: ambiguous
+  difficulty: medium
+  question: How do I return files?
+  expected_sources: [custom-response, static-files]
+  golden_answer: >
+    Use FileResponse to send a file from a path operation (or StreamingResponse for streams);
+    for whole directories of assets, mount StaticFiles.
+
+- id: ambig_deploy
+  category: ambiguous
+  difficulty: hard
+  question: How do I deploy?
+  expected_sources: [deployment]
+  golden_answer: >
+    Run the app with a server like uvicorn (fastapi run / uvicorn main:app), typically behind
+    a process manager or in a container; the deployment docs cover concepts like workers,
+    HTTPS and Docker images.

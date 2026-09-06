@@ -1,0 +1,87 @@
+# The answer needs two documents combined.
+
+- id: hop_error_vs_response
+  category: multi_hop
+  difficulty: hard
+  question: >
+    What is the difference between raising an HTTPException and returning a JSONResponse
+    with an error status code myself?
+  expected_sources: [handling-errors, response-directly]
+  golden_answer: >
+    Raising HTTPException is the normal way to signal errors: FastAPI converts it to a JSON
+    error response and it works from anywhere (including dependencies). Returning a
+    JSONResponse directly just sends that response as-is: no model serialization or
+    validation is applied, and you are responsible for its content and status code.
+
+- id: hop_path_and_query_validation
+  category: multi_hop
+  difficulty: medium
+  question: >
+    In one endpoint, how do I require the path parameter item_id to be at least 1 and limit
+    a query parameter q to 50 characters?
+  expected_sources: [path-params-numeric-validations, query-params-str-validations]
+  golden_answer: >
+    Combine both validation styles: item_id: Annotated[int, Path(ge=1)] and
+    q: Annotated[str | None, Query(max_length=50)] in the same function signature.
+
+- id: hop_secure_plus_background
+  category: multi_hop
+  difficulty: hard
+  question: >
+    How do I protect an endpoint with an OAuth2 bearer token and also send a notification
+    email after the response is returned?
+  expected_sources: [security, background-tasks]
+  golden_answer: >
+    Add the OAuth2 scheme (e.g. OAuth2PasswordBearer) as a dependency so the endpoint
+    requires a bearer token, and declare a BackgroundTasks parameter, calling add_task with
+    the email function so it runs after the response is sent.
+
+- id: hop_upload_created_status
+  category: multi_hop
+  difficulty: medium
+  question: How do I accept a file upload and respond with status code 201?
+  expected_sources: [request-files, response-status-code]
+  golden_answer: >
+    Declare an UploadFile parameter for the upload and set status_code=201 (or
+    status.HTTP_201_CREATED) on the path operation decorator.
+
+- id: hop_db_session_dependency
+  category: multi_hop
+  difficulty: hard
+  question: >
+    How do I give every request a database session and make sure it is closed after the
+    request finishes?
+  expected_sources: [dependencies-with-yield, sql-databases]
+  golden_answer: >
+    Use a dependency with yield: create the session, yield it to the path operation, and
+    close it in the code after the yield (or a finally block) — that code runs after the
+    response, so the session is always cleaned up.
+
+- id: hop_static_and_html
+  category: multi_hop
+  difficulty: medium
+  question: How do I serve a static assets folder and also return a hand-built HTML page?
+  expected_sources: [static-files, custom-response]
+  golden_answer: >
+    Mount StaticFiles for the assets directory, and for the page return an HTMLResponse
+    (or set response_class=HTMLResponse on the path operation).
+
+- id: hop_test_websocket
+  category: multi_hop
+  difficulty: hard
+  question: How do I test a WebSocket endpoint?
+  expected_sources: [websocket, testing]
+  golden_answer: >
+    Use TestClient with websocket_connect("/ws") as a context manager and exchange messages
+    with send/receive methods (e.g. send_text, receive_text) inside the with block.
+
+- id: hop_router_shared_dependency
+  category: multi_hop
+  difficulty: hard
+  question: >
+    In a large app split into routers, how do I apply one auth dependency to every route of
+    a router at once?
+  expected_sources: [bigger-applications, dependencies]
+  golden_answer: >
+    Pass dependencies=[Depends(auth_func)] to the APIRouter constructor (or to
+    include_router); every path operation in that router then runs the dependency.

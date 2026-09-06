@@ -95,14 +95,21 @@ class AnswerPipeline:
         )
 
 
-def build_pipeline(settings: Settings) -> AnswerPipeline:
-    """Wire the whole stack from settings — used by scripts, the API, and the eval runner."""
+def build_pipeline(settings: Settings, *, strategy: str | None = None) -> AnswerPipeline:
+    """Wire the whole stack from settings — used by scripts, the API, and the eval runner.
+
+    ``strategy`` picks which chunking strategy's index view to search (the bake-off compares
+    them); default is CHUNK_STRATEGY from settings.
+    """
+    from librarian.types import Strategy
+
+    active = Strategy(strategy or settings.chunk_strategy)
     embedder = build_embedder(settings)
     store = ChunkStore(settings.store_path)
     retriever = Retriever(
         store,
-        DenseIndex(build_client(settings), space_id=embedder.space_id),
-        SparseIndex(store.all_chunks()),
+        DenseIndex(build_client(settings), space_id=embedder.space_id, strategy=active.value),
+        SparseIndex(store.all_chunks(active)),
         embedder,
         build_reranker(settings),
         dense_k=settings.dense_k,

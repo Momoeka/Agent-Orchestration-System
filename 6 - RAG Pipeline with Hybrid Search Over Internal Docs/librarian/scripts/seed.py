@@ -39,12 +39,16 @@ def main() -> int:
 
     embedder = build_embedder(settings)
     store = ChunkStore(settings.store_path)
-    dense = DenseIndex(build_client(settings), space_id=embedder.space_id)
+    # scoped to the strategy being seeded: dedup must never compare across strategies
+    dense = DenseIndex(build_client(settings), space_id=embedder.space_id, strategy=strategy.value)
     indexer = Indexer(store, dense, embedder, dedup_threshold=settings.dedup_threshold)
 
     started = time.perf_counter()
-    added = skipped = 0
+    added = skipped = resumed = 0
     for i, doc in enumerate(docs, 1):
+        if store.has_chunks(doc.doc_id, strategy):  # already seeded: a cut-off run resumes
+            resumed += 1
+            continue
         report = indexer.ingest(
             doc, strategy=strategy, size=settings.chunk_size, overlap=settings.chunk_overlap
         )
@@ -56,7 +60,8 @@ def main() -> int:
     counts = store.counts()
     print(
         f"done in {elapsed:.1f}s — {counts['documents']} documents, {counts['chunks']} chunks "
-        f"({strategy} strategy), dense collection '{dense.collection_name}' has {dense.count()}"
+        f"({strategy} strategy; {resumed} docs already seeded), "
+        f"dense collection '{dense.collection_name}' has {dense.count()}"
     )
     return 0
 

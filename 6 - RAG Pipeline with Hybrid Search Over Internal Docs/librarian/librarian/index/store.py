@@ -106,6 +106,13 @@ class ChunkStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def has_chunks(self, doc_id: str, strategy: Strategy) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM chunks WHERE doc_id = ? AND strategy = ? LIMIT 1",
+            (doc_id, strategy.value),
+        ).fetchone()
+        return row is not None
+
     def counts(self) -> dict[str, int]:
         docs = self._conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
         chunks = self._conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]

@@ -1,0 +1,62 @@
+# Not in the corpus. The only correct behaviour is the structured refusal —
+# answering any of these counts as a hallucination and fails the --strict gate.
+
+- id: noans_enterprise_pricing
+  category: no_answer
+  difficulty: easy
+  question: What is the monthly price of the FastAPI enterprise plan?
+  expect_refusal: true
+
+- id: noans_support_phone
+  category: no_answer
+  difficulty: easy
+  question: What is the official FastAPI support phone number I can call?
+  expect_refusal: true
+
+- id: noans_php_sdk
+  category: no_answer
+  difficulty: easy
+  question: How do I install the official FastAPI SDK for PHP?
+  expect_refusal: true
+
+- id: noans_release_date_v2
+  category: no_answer
+  difficulty: medium
+  question: In which month and year will FastAPI 2.0 be released?
+  expect_refusal: true
+
+- id: noans_sla_uptime
+  category: no_answer
+  difficulty: medium
+  question: What uptime percentage does the FastAPI SLA guarantee?
+  expect_refusal: true
+
+- id: noans_certification_exam
+  category: no_answer
+  difficulty: medium
+  question: How much does the official FastAPI developer certification exam cost?
+  expect_refusal: true
+
+- id: noans_gpu_requirements
+  category: no_answer
+  difficulty: medium
+  question: What GPU model is required to run FastAPI in production?
+  expect_refusal: true
+
+- id: noans_license_seat_cost
+  category: no_answer
+  difficulty: easy
+  question: What is the per-developer seat cost of a commercial FastAPI license?
+  expect_refusal: true
+
+- id: noans_employee_count
+  category: no_answer
+  difficulty: medium
+  question: How many employees does the FastAPI company have?
+  expect_refusal: true
+
+- id: noans_cobol_client
+  category: no_answer
+  difficulty: easy
+  question: Show me the documented way to call a FastAPI service from COBOL.
+  expect_refusal: true

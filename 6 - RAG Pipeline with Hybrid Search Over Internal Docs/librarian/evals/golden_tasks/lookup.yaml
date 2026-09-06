@@ -1,0 +1,182 @@
+# One fact, one page. expected_sources are substring-matched against hit.source.
+
+- id: lookup_response_model_purpose
+  category: lookup
+  difficulty: easy
+  question: What does the response_model parameter on a path operation do?
+  expected_sources: [response-model]
+  must_contain: [response_model]
+  golden_answer: >
+    response_model declares the model used for the response: FastAPI validates, documents and
+    filters the returned data to that model's fields, so extra data (like a password field)
+    is excluded from the output.
+
+- id: lookup_status_code_decorator
+  category: lookup
+  difficulty: easy
+  question: How do I set the HTTP status code for a path operation?
+  expected_sources: [response-status-code]
+  must_contain: [status_code]
+  golden_answer: >
+    Pass the status_code parameter to the path operation decorator, for example
+    @app.post("/items/", status_code=201) or status_code=status.HTTP_201_CREATED.
+
+- id: lookup_http_exception
+  category: lookup
+  difficulty: easy
+  question: How do I return an error to the client when an item is not found?
+  expected_sources: [handling-errors]
+  must_contain: [HTTPException]
+  golden_answer: >
+    Raise HTTPException with the status code and detail, e.g.
+    raise HTTPException(status_code=404, detail="Item not found").
+
+- id: lookup_background_tasks
+  category: lookup
+  difficulty: easy
+  question: How can I run something after returning the response, like sending an email?
+  expected_sources: [background-tasks]
+  must_contain: [BackgroundTasks]
+  golden_answer: >
+    Declare a parameter of type BackgroundTasks and call background_tasks.add_task(func, args);
+    the task runs after the response is sent.
+
+- id: lookup_cors_setup
+  category: lookup
+  difficulty: easy
+  question: How do I allow a frontend on another domain to call my API?
+  expected_sources: [cors]
+  must_contain: [CORSMiddleware]
+  golden_answer: >
+    Add CORSMiddleware with app.add_middleware(CORSMiddleware, allow_origins=[...],
+    allow_methods, allow_headers) listing the allowed origins.
+
+- id: lookup_upload_file
+  category: lookup
+  difficulty: medium
+  question: How do I accept a file upload in an endpoint?
+  expected_sources: [request-files]
+  must_contain: [UploadFile]
+  golden_answer: >
+    Declare a parameter of type UploadFile (with File() when needed); it exposes filename,
+    content_type and async read/seek methods, storing large files in a spooled temp file.
+
+- id: lookup_form_dependency
+  category: lookup
+  difficulty: medium
+  question: What extra package do I need to receive HTML form fields?
+  expected_sources: [request-forms]
+  must_contain: [python-multipart]
+  golden_answer: >
+    Install python-multipart; form fields are then declared with Form() parameters.
+
+- id: lookup_query_validation
+  category: lookup
+  difficulty: medium
+  question: How do I add a maximum length to a query parameter?
+  expected_sources: [query-params-str-validations]
+  must_contain: [Query]
+  golden_answer: >
+    Use Query with validation options, e.g. q: Annotated[str | None, Query(max_length=50)];
+    min_length and pattern work the same way.
+
+- id: lookup_path_numeric_validation
+  category: lookup
+  difficulty: medium
+  question: How do I require a path parameter to be greater than or equal to 1?
+  expected_sources: [path-params-numeric-validations]
+  must_contain: [ge]
+  golden_answer: >
+    Use Path with numeric validation, e.g. item_id: Annotated[int, Path(ge=1)]; gt, le and lt
+    are available too.
+
+- id: lookup_dependencies_basics
+  category: lookup
+  difficulty: easy
+  question: What is Depends used for?
+  expected_sources: [dependencies]
+  must_contain: [Depends]
+  golden_answer: >
+    Depends declares a dependency: a function FastAPI runs before the path operation, whose
+    result is injected as the parameter value — used to share logic like common parameters,
+    auth checks or database sessions.
+
+- id: lookup_oauth2_password_bearer
+  category: lookup
+  difficulty: medium
+  question: Which class do I use to extract a bearer token for OAuth2 password flow?
+  expected_sources: [security]
+  must_contain: [OAuth2PasswordBearer]
+  golden_answer: >
+    OAuth2PasswordBearer, created with the tokenUrl parameter; used as a dependency it reads
+    the Authorization Bearer header and returns the token.
+
+- id: lookup_static_files
+  category: lookup
+  difficulty: easy
+  question: How do I serve a folder of static files?
+  expected_sources: [static-files]
+  must_contain: [StaticFiles]
+  golden_answer: >
+    Mount StaticFiles, e.g. app.mount("/static", StaticFiles(directory="static"),
+    name="static").
+
+- id: lookup_test_client
+  category: lookup
+  difficulty: easy
+  question: How do I write a simple test for my API without running a server?
+  expected_sources: [testing]
+  must_contain: [TestClient]
+  golden_answer: >
+    Use TestClient from fastapi.testclient: client = TestClient(app), then call
+    client.get(...) and assert on the response — the API follows httpx/requests conventions.
+
+- id: lookup_api_router
+  category: lookup
+  difficulty: medium
+  question: How do I split a large application into multiple route files?
+  expected_sources: [bigger-applications]
+  must_contain: [APIRouter]
+  golden_answer: >
+    Create APIRouter instances in separate modules and register them on the app with
+    app.include_router(router), optionally with a shared prefix, tags and dependencies.
+
+- id: lookup_docs_urls
+  category: lookup
+  difficulty: easy
+  question: Where do I see the automatic interactive API documentation?
+  expected_sources: [first-steps]
+  must_contain: [/docs]
+  golden_answer: >
+    Swagger UI is served at /docs and ReDoc at /redoc, generated automatically from the
+    OpenAPI schema.
+
+- id: lookup_async_def_choice
+  category: lookup
+  difficulty: medium
+  question: When should I declare a path operation with async def instead of def?
+  expected_sources: [async]
+  must_contain: [async]
+  golden_answer: >
+    Use async def when the code awaits async libraries; plain def is fine otherwise — FastAPI
+    runs def path operations in an external threadpool so they do not block the event loop.
+
+- id: lookup_websocket_endpoint
+  category: lookup
+  difficulty: medium
+  question: How do I create a WebSocket endpoint?
+  expected_sources: [websockets]
+  must_contain: [websocket]
+  golden_answer: >
+    Use @app.websocket("/ws") with a WebSocket parameter; await websocket.accept(), then
+    receive and send messages (e.g. receive_text / send_text) in a loop.
+
+- id: lookup_middleware_http
+  category: lookup
+  difficulty: medium
+  question: How do I add code that runs for every request and response?
+  expected_sources: [middleware]
+  must_contain: [middleware]
+  golden_answer: >
+    Define a middleware with @app.middleware("http") — an async function receiving the
+    request and call_next, which can act before and after the response is produced.

@@ -1,0 +1,81 @@
+# The query itself contains an identifier — where BM25 must shine (the hybrid thesis).
+
+- id: token_response_model_exclude_unset
+  category: exact_token
+  difficulty: medium
+  question: What does response_model_exclude_unset=True do?
+  expected_sources: [response-model]
+  must_contain: [response_model_exclude_unset]
+  golden_answer: >
+    With response_model_exclude_unset=True the response omits fields that were not explicitly
+    set on the model, so default values that were never assigned are left out.
+
+- id: token_jsonresponse_status
+  category: exact_token
+  difficulty: medium
+  question: How do I use JSONResponse to send a status code that isn't the default?
+  expected_sources: [additional-status-codes, response-directly]
+  must_contain: [JSONResponse]
+  golden_answer: >
+    Return a JSONResponse directly with content and status_code, e.g.
+    JSONResponse(status_code=201, content=...); FastAPI sends it as-is.
+
+- id: token_http_404_not_found
+  category: exact_token
+  difficulty: easy
+  question: Where does status.HTTP_404_NOT_FOUND come from and how do I use it?
+  expected_sources: [response-status-code, handling-errors]
+  must_contain: [status]
+  golden_answer: >
+    Import status from fastapi and use its named constants (like status.HTTP_404_NOT_FOUND)
+    anywhere a status code is expected, e.g. in HTTPException or the decorator's status_code.
+
+- id: token_oauth2passwordrequestform
+  category: exact_token
+  difficulty: hard
+  question: What is OAuth2PasswordRequestForm and what fields does it declare?
+  expected_sources: [security]
+  must_contain: [OAuth2PasswordRequestForm]
+  golden_answer: >
+    A dependency class for the OAuth2 password flow login form; it declares form fields
+    username and password (plus optional scope, grant_type, client_id and client_secret).
+
+- id: token_uploadfile_read
+  category: exact_token
+  difficulty: medium
+  question: What methods does UploadFile offer for reading the contents?
+  expected_sources: [request-files]
+  must_contain: [read]
+  golden_answer: >
+    UploadFile exposes async methods read, seek, write and close (and the underlying
+    file object); in async path operations use await file.read().
+
+- id: token_testclient_import
+  category: exact_token
+  difficulty: easy
+  question: What is the import path for TestClient?
+  expected_sources: [testing]
+  must_contain: [fastapi.testclient]
+  golden_answer: >
+    from fastapi.testclient import TestClient.
+
+- id: token_include_router
+  category: exact_token
+  difficulty: medium
+  question: What arguments does app.include_router accept for adding a prefix and tags?
+  expected_sources: [bigger-applications]
+  must_contain: [prefix]
+  golden_answer: >
+    include_router accepts the router plus options like prefix="/items", tags=["items"],
+    dependencies=[...] and responses; the prefix must not end with a slash.
+
+- id: token_jsonable_encoder
+  category: exact_token
+  difficulty: hard
+  question: What is jsonable_encoder for?
+  expected_sources: [encoder]
+  must_contain: [jsonable_encoder]
+  golden_answer: >
+    jsonable_encoder converts objects like Pydantic models and datetimes into JSON-compatible
+    structures (dicts, lists, strings) — used e.g. before storing data or building a
+    JSONResponse manually.
