@@ -4,6 +4,47 @@ Running log across coding sessions. Read this first; update it last. Newest entr
 
 ---
 
+## 2026-09-06 — Phase 4 baseline: 50 questions, 4 of 5 targets met
+
+Run `full-hybrid-heading` (k=1, hybrid, heading, full 155-doc corpus, saved as baseline):
+
+| metric | value | target | met |
+|---|---|---|---|
+| refusal_honesty | **1.0** | 1.0 | yes — zero hallucinations on 10 no-answer traps |
+| success_rate_answerable | **0.80** | ≥ 0.80 | yes |
+| citation_accuracy | **0.90** | ≥ 0.85 | yes |
+| faithfulness_rate | **0.94** | ≥ 0.90 | yes |
+| retrieval_recall | **0.84** | ≥ 0.85 | NO — 1.5 points short |
+
+success_rate (all) 0.84 · correctness mean 4.65 · p50 7.3 s · p95 17.8 s · unjudged 0.
+
+### How the run went
+- First pass: 30/50 — but 19 of 20 failures were **judge starvation**, not quality (gemini
+  flash = 20 req/day; both the citation verifier and the eval judge use the judge chain, and
+  a verifier outage makes coverage 0 → the gate refuses good answers — designed honesty,
+  wrong measurement). Fixes: `gemini-3.5-flash-lite` added as a second judge entry (own
+  daily quota bucket) and `runner --retry-failures` (prunes failed rows on resume). The
+  retry converged at 42/50 with 0 unjudged.
+
+### Genuine findings (the harness earning its keep)
+1. **`lookup_cors_setup` recall 0.0** — "allow a frontend on another domain" retrieves
+   nothing from cors.md in the top-5; the answer then scored correctness 1. The clearest
+   retrieval gap found so far.
+2. Retrieval recall misses concentrate in multi-hop tasks (second source often outside
+   top-5) — the case for installing the cross-encoder (`uv sync --group rerank`) before
+   chasing prompt changes.
+3. Six answerable questions still refused — near-threshold composites; tune threshold/
+   weights only against this baseline, never by taste.
+4. `ambig_validate_data` and `token_uploadfile_read` scored correctness 3 — real quality,
+   not infra.
+
+### Open / next
+- Bake-off arms on fresh quota: `--mode dense` (hybrid-vs-dense table) and
+  `--strategy fixed`; seed semantic overnight, then its arm.
+- Install the reranker group and re-run → expect recall over the 0.85 line; then re-baseline.
+
+---
+
 ## 2026-09-06 — Phase 3: grounded answers, verified citations, honest refusals + EXPLAINED.md
 
 ### Built
