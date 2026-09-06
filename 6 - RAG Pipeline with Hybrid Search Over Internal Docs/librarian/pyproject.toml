@@ -1,0 +1,45 @@
+[project]
+name = "librarian"
+version = "0.1.0"
+description = "RAG pipeline with hybrid search over internal docs: ingest, hybrid retrieve (dense + BM25 + RRF), rerank, answer with verified citations."
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.2",
+    "beautifulsoup4>=4.12",
+    "pymupdf>=1.24",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "types-pyyaml",
+    "types-beautifulsoup4",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+strict = true
+files = ["librarian", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["fitz", "fitz.*"]
+ignore_missing_imports = true
+
+[tool.uv]
+package = false
